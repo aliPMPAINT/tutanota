@@ -6,14 +6,15 @@ import {getCalendarName} from "./CalendarUtils"
 import type {TranslationKey} from "../misc/LanguageViewModel"
 import {lang} from "../misc/LanguageViewModel"
 import {load, loadAll} from "../api/main/Entity"
-import {GroupInfoTypeRef} from "../api/entities/sys/GroupInfo"
-import {GroupMemberTypeRef} from "../api/entities/sys/GroupMember"
 import type {GroupInfo} from "../api/entities/sys/GroupInfo"
-import type {ReceivedGroupInvitation} from "../api/entities/sys/ReceivedGroupInvitation"
+import {GroupInfoTypeRef} from "../api/entities/sys/GroupInfo"
 import type {GroupMember} from "../api/entities/sys/GroupMember"
+import {GroupMemberTypeRef} from "../api/entities/sys/GroupMember"
+import type {ReceivedGroupInvitation} from "../api/entities/sys/ReceivedGroupInvitation"
 import type {Group} from "../api/entities/sys/Group"
 import type {SentGroupInvitation} from "../api/entities/sys/SentGroupInvitation"
 import {locator} from "../api/main/MainLocator"
+import type {RecipientInfo} from "../api/common/RecipientInfo"
 
 export function sendShareNotificationEmail(sharedGroupInfo: GroupInfo, recipients: Array<RecipientInfo>) {
 	locator.mailModel.getUserMailboxDetails().then((mailboxDetails) => {

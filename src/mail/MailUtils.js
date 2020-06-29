@@ -1,6 +1,7 @@
 // @flow
 import m from "mithril"
-import {isTutanotaMailAddress, recipientInfoType} from "../api/common/RecipientInfo"
+import type {RecipientInfo} from "../api/common/RecipientInfo"
+import {isTutanotaMailAddress, RecipientInfoType} from "../api/common/RecipientInfo"
 import {fullNameToFirstAndLastName, mailAddressToFirstAndLastName, stringToNameAndMailAddress} from "../misc/Formatter"
 import type {Contact} from "../api/entities/tutanota/Contact"
 import {createContact} from "../api/entities/tutanota/Contact"
@@ -16,18 +17,10 @@ import {
 } from "../api/common/TutanotaConstants"
 import {getEnabledMailAddressesForGroupInfo, getGroupInfoDisplayName, neverNull} from "../api/common/utils/Utils"
 import {assertMainOrNode, isApp, isDesktop} from "../api/Env"
-import {createPublicKeyData} from "../api/entities/sys/PublicKeyData"
-import {serviceRequest} from "../api/main/Entity"
-import {SysService} from "../api/entities/sys/Services"
-import {HttpMethod} from "../api/common/EntityFunctions"
-import {PublicKeyReturnTypeRef} from "../api/entities/sys/PublicKeyReturn"
-import {NotFoundError} from "../api/common/error/RestError"
 import {contains} from "../api/common/utils/ArrayUtils"
 import {logins} from "../api/main/LoginController"
 import {htmlSanitizer} from "../misc/HtmlSanitizer"
 import {lang} from "../misc/LanguageViewModel"
-import type {MailAddress} from "../api/entities/tutanota/MailAddress"
-import {createMailAddress} from "../api/entities/tutanota/MailAddress"
 import {Icons} from "../gui/base/icons/Icons"
 import type {MailboxDetail} from "./MailModel"
 import {getContactDisplayName, searchForContactByMailAddress} from "../contacts/ContactUtils"
@@ -41,6 +34,7 @@ import {locator} from "../api/main/MainLocator"
 import type {IUserController} from "../api/main/UserController"
 import type {InlineImages} from "./MailViewer"
 import type {Mail} from "../api/entities/tutanota/Mail"
+import type {Recipient, RecipientList} from "./MailEditor"
 
 assertMainOrNode()
 
@@ -53,9 +47,8 @@ assertMainOrNode()
  * @returns {{_type: string, type: string, mailAddress: string, name: ?string, contact: *}}
  */
 export function createRecipientInfo(mailAddress: string, name: ?string, contact: ?Contact, doNotResolveContact: boolean): RecipientInfo {
-	let type = isTutanotaMailAddress(mailAddress) ? recipientInfoType.internal : recipientInfoType.unknown
+	let type = isTutanotaMailAddress(mailAddress) ? RecipientInfoType.INTERNAL : RecipientInfoType.UNKNOWN
 	let recipientInfo: RecipientInfo = {
-		_type: 'RecipientInfo',
 		type,
 		mailAddress,
 		name: name || "", // "" will be replaced as soon as a contact is found
@@ -120,20 +113,14 @@ export function createNewContact(mailAddress: string, name: string): Contact {
  * @throws TooManyRequestsError if the recipient could not be resolved because of too many requests.
  */
 export function resolveRecipientInfo(recipientInfo: RecipientInfo): Promise<RecipientInfo> {
-	if (recipientInfo.type !== recipientInfoType.unknown) {
+	if (recipientInfo.type !== RecipientInfoType.UNKNOWN) {
 		return Promise.resolve(recipientInfo)
 	} else {
-		let keyData = createPublicKeyData()
-		keyData.mailAddress = recipientInfo.mailAddress
-		return serviceRequest(SysService.PublicKeyService, HttpMethod.GET, keyData, PublicKeyReturnTypeRef)
-			.then(publicKeyData => {
-				recipientInfo.type = recipientInfoType.internal
-				return recipientInfo
-			})
-			.catch(NotFoundError, e => {
-				recipientInfo.type = recipientInfoType.external
-				return recipientInfo
-			})
+		return locator.mailModel.getRecipientKeyData(recipientInfo.mailAddress)
+		              .then((keyData) => {
+			              recipientInfo.type = keyData == null ? RecipientInfoType.EXTERNAL : RecipientInfoType.INTERNAL
+			              return recipientInfo
+		              })
 	}
 }
 
@@ -197,7 +184,9 @@ export function getDefaultSignature() {
 }
 
 
-export function parseMailtoUrl(mailtoUrl: string): {to: MailAddress[], cc: MailAddress[], bcc: MailAddress[], subject: string, body: string} {
+export function parseMailtoUrl(
+	mailtoUrl: string
+): {to: RecipientList, cc: RecipientList, bcc: RecipientList, subject: string, body: string} {
 	let url = new URL(mailtoUrl)
 	let toRecipients = []
 	let ccRecipients = []
@@ -206,16 +195,9 @@ export function parseMailtoUrl(mailtoUrl: string): {to: MailAddress[], cc: MailA
 	let subject = ""
 	let body = ""
 
-	let createMailAddressFromString = (address: string): ?MailAddress => {
-		let nameAndMailAddress = stringToNameAndMailAddress(address)
-		if (nameAndMailAddress) {
-			let mailAddress = createMailAddress()
-			mailAddress.name = nameAndMailAddress.name
-			mailAddress.address = nameAndMailAddress.mailAddress
-			return mailAddress
-		} else {
-			return null
-		}
+	let createMailAddressFromString = (address: string): ?Recipient => {
+		const nameAndAddress = stringToNameAndMailAddress(address)
+		return nameAndAddress && {name: nameAndAddress.name, address: nameAndAddress.mailAddress}
 	}
 
 	addresses.forEach((address) => {

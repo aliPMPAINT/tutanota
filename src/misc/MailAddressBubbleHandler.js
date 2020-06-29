@@ -5,12 +5,13 @@ import {isMailAddress} from "./FormatValidator"
 import {LazyContactListId, searchForContacts} from "../contacts/ContactUtils"
 import {DbError} from "../api/common/error/DbError"
 import {loadAll} from "../api/main/Entity"
+import type {Contact} from "../api/entities/tutanota/Contact"
 import {ContactTypeRef} from "../api/entities/tutanota/Contact"
 import {Mode} from "../api/Env"
 import {findRecipients} from "../native/ContactApp"
 import {stringToNameAndMailAddress} from "./Formatter"
 import {ContactSuggestion, ContactSuggestionHeight} from "./ContactSuggestion"
-import type {Contact} from "../api/entities/tutanota/Contact"
+import type {RecipientInfo} from "../api/common/RecipientInfo"
 
 
 type BubbleFactory = {

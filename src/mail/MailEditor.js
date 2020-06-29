@@ -23,7 +23,8 @@ import {worker} from "../api/main/WorkerClient"
 import type {Suggestion} from "../gui/base/BubbleTextField"
 import {Bubble, BubbleTextField} from "../gui/base/BubbleTextField"
 import {Editor} from "../gui/base/Editor"
-import {isExternal, recipientInfoType} from "../api/common/RecipientInfo"
+import type {RecipientInfo} from "../api/common/RecipientInfo"
+import {isExternal, RecipientInfoType} from "../api/common/RecipientInfo"
 import {
 	AccessBlockedError,
 	ConnectionError,
@@ -46,6 +47,7 @@ import {
 	getDisplayText,
 	getEmailSignature,
 	getEnabledMailAddresses,
+	getEnabledMailAddressesWithUser,
 	getMailboxName,
 	getSenderName,
 	parseMailtoUrl,
@@ -72,7 +74,6 @@ import {logins} from "../api/main/LoginController"
 import {Icons} from "../gui/base/icons/Icons"
 import {DropDownSelector} from "../gui/base/DropDownSelector"
 import type {MailAddress} from "../api/entities/tutanota/MailAddress"
-import {createMailAddress} from "../api/entities/tutanota/MailAddress"
 import {showProgressDialog} from "../gui/base/ProgressDialog"
 import type {MailboxDetail} from "./MailModel"
 import {locator} from "../api/main/MainLocator"
@@ -107,8 +108,14 @@ import type {EncryptedMailAddress} from "../api/entities/tutanota/EncryptedMailA
 
 assertMainOrNode()
 
-export type RecipientList = $ReadOnlyArray<{name: ?string, address: string}>
+export type Recipient = {name: ?string, address: string, contact?: ?Contact}
+export type RecipientList = $ReadOnlyArray<Recipient>
 export type Recipients = {to?: RecipientList, cc?: RecipientList, bcc?: RecipientList}
+
+// Because MailAddress does not have contact of the right type (event when renamed on Recipient) MailAddress <: Recipient does not hold
+function toRecipient({address, name}: MailAddress): Recipient {
+	return {name, address}
+}
 
 type EditorAttachment = TutanotaFile | DataFile | FileReference
 type MailEditorHooks = {
@@ -224,7 +231,7 @@ export class MailEditor {
 			: null
 
 		this.subject._injectionsRight = () => {
-			return this._allRecipients().find(r => r.type === recipientInfoType.external)
+			return this._allRecipients().find(r => r.type === RecipientInfoType.EXTERNAL)
 				? [m(ButtonN, confidentialButtonAttrs), m(ButtonN, attachFilesButtonAttrs), toolbarButton()]
 				: [m(ButtonN, attachFilesButtonAttrs), toolbarButton()]
 		}
@@ -335,7 +342,7 @@ export class MailEditor {
 						oncreate: vnode => this.animate(vnode.dom, true),
 						onbeforeremove: vnode => this.animate(vnode.dom, false)
 					}, this._allRecipients()
-					       .filter(r => r.type === recipientInfoType.external
+					       .filter(r => r.type === RecipientInfoType.EXTERNAL
 						       && !r.resolveContactPromise) // only show passwords for resolved contacts, otherwise we might not get the password
 					       .map(r => m(TextFieldN, Object.assign({}, this.getPasswordField(r), {
 						       oncreate: vnode => this.animate(vnode.dom, true),
@@ -464,8 +471,7 @@ export class MailEditor {
 	}
 
 	getPasswordStrength(recipientInfo: RecipientInfo) {
-		let user = logins.getUserController()
-		let reserved = getEnabledMailAddresses(this._mailboxDetails).concat(
+		let reserved = getEnabledMailAddressesWithUser(this._mailboxDetails, logins.getUserController().userGroupInfo).concat(
 			getMailboxName(this._mailboxDetails),
 			recipientInfo.mailAddress,
 			recipientInfo.name
@@ -474,18 +480,13 @@ export class MailEditor {
 	}
 
 	initAsResponse({
-		               previousMail, conversationType, senderMailAddress,
-		               toRecipients, ccRecipients, bccRecipients,
-		               attachments, subject, bodyText,
-		               replyTos, addSignature, inlineImages,
-		               blockExternalContent
+		               previousMail, conversationType, senderMailAddress, recipients, attachments, subject, bodyText, replyTos,
+		               addSignature, inlineImages, blockExternalContent
 	               }: {
 		previousMail: Mail,
 		conversationType: ConversationTypeEnum,
 		senderMailAddress: string,
-		toRecipients: MailAddress[],
-		ccRecipients: MailAddress[],
-		bccRecipients: MailAddress[],
+		recipients: Recipients,
 		attachments: TutanotaFile[],
 		subject: string,
 		bodyText: string,
@@ -515,39 +516,34 @@ export class MailEditor {
 			})
 			.then(() => {
 				// We don't want to wait for the editor to be initialized, otherwise it will never be shown
-				this._setMailData(previousMail, previousMail.confidential, conversationType, previousMessageId, senderMailAddress, toRecipients, ccRecipients, bccRecipients, attachments, subject, bodyText, replyTos)
+				this._setMailData(previousMail, previousMail.confidential, conversationType, previousMessageId, senderMailAddress,
+					recipients, attachments, subject, bodyText, replyTos)
 				    .then(() => this._replaceInlineImages(inlineImages))
 			})
 	}
 
 	initWithTemplate(recipients: Recipients, subject: string, bodyText: string, confidential: ?boolean, senderMailAddress?: string): Promise<void> {
-		function toMailAddress({name, address}: {name: ?string, address: string}) {
-			return createMailAddress({name: name || "", address})
-		}
-
-		const toRecipients = recipients.to ? recipients.to.map(toMailAddress) : []
-		const ccRecipients = recipients.cc ? recipients.cc.map(toMailAddress) : []
-		const bccRecipients = recipients.bcc ? recipients.bcc.map(toMailAddress) : []
-		if (toRecipients.length) {
+		if (recipients.to && recipients.to.length) {
 			this.dialog.setFocusOnLoadFunction(() => this._focusBodyOnLoad())
 		}
 
 		const sender = senderMailAddress ? senderMailAddress : this._senderField.selectedValue()
 
-		this._setMailData(null, confidential, ConversationType.NEW, null, sender, toRecipients, ccRecipients,
-			bccRecipients, [], subject, bodyText, [])
+		this._setMailData(null, confidential, ConversationType.NEW, null, sender, recipients, [], subject, bodyText, [])
 		return Promise.resolve()
 	}
 
 	initWithMailtoUrl(mailtoUrl: string, confidential: boolean): Promise<void> {
-		let result = parseMailtoUrl(mailtoUrl)
+		const result = parseMailtoUrl(mailtoUrl)
 
 		let bodyText = result.body
-		let signature = getEmailSignature()
+		const signature = getEmailSignature()
 		if (logins.getUserController().isInternalUser() && signature) {
 			bodyText = bodyText + signature
 		}
-		this._setMailData(null, confidential, ConversationType.NEW, null, this._senderField.selectedValue(), result.to, result.cc, result.bcc, [], result.subject, bodyText, [])
+		const {to, cc, bcc} = result
+		this._setMailData(null, confidential, ConversationType.NEW, null, this._senderField.selectedValue(), {to, cc, bcc}, [],
+			result.subject, bodyText, [])
 		return Promise.resolve()
 	}
 
@@ -580,14 +576,20 @@ export class MailEditor {
 			}
 		}).then(() => {
 			const {confidential, sender, toRecipients, ccRecipients, bccRecipients, subject, replyTos} = draftMail
+			const recipients: Recipients = {
+				to: toRecipients.map(toRecipient),
+				cc: ccRecipients.map(toRecipient),
+				bcc: bccRecipients.map(toRecipient),
+			}
 			// We don't want to wait for the editor to be initialized, otherwise it will never be shown
-			this._setMailData(previousMail, confidential, conversationType, previousMessageId, sender.address, toRecipients, ccRecipients, bccRecipients, attachments, subject, bodyText, replyTos)
+			this._setMailData(previousMail, confidential, conversationType, previousMessageId, sender.address, recipients, attachments,
+				subject, bodyText, replyTos)
 			    .then(() => this._replaceInlineImages(inlineImages))
 		})
 	}
 
 	_setMailData(previousMail: ?Mail, confidential: ?boolean, conversationType: ConversationTypeEnum, previousMessageId: ?string, senderMailAddress: string,
-	             toRecipients: MailAddress[], ccRecipients: MailAddress[], bccRecipients: MailAddress[], attachments: TutanotaFile[], subject: string,
+	             recipients: Recipients, attachments: TutanotaFile[], subject: string,
 	             body: string, replyTos: EncryptedMailAddress[]): Promise<void> {
 		this._previousMail = previousMail
 		this.conversationType = conversationType
@@ -618,9 +620,13 @@ export class MailEditor {
 			this.toRecipients.textField.setDisabled()
 		}
 
-		this.toRecipients.bubbles = toRecipients.filter(r => isMailAddress(r.address, false)).map(r => this.createBubble(r.name, r.address, null))
-		this.ccRecipients.bubbles = ccRecipients.filter(r => isMailAddress(r.address, false)).map(r => this.createBubble(r.name, r.address, null))
-		this.bccRecipients.bubbles = bccRecipients.filter(r => isMailAddress(r.address, false)).map(r => this.createBubble(r.name, r.address, null))
+		const {to = [], cc = [], bcc = []} = recipients
+		this.toRecipients.bubbles = to.filter(r => isMailAddress(r.address, false))
+		                              .map(r => this.createBubble(r.name, r.address, r.contact))
+		this.ccRecipients.bubbles = cc.filter(r => isMailAddress(r.address, false))
+		                              .map(r => this.createBubble(r.name, r.address, r.contact))
+		this.bccRecipients.bubbles = bcc.filter(r => isMailAddress(r.address, false))
+		                                .map(r => this.createBubble(r.name, r.address, r.contact))
 		this._replyTos = replyTos.map(ema => createRecipientInfo(ema.address, ema.name, null, true))
 		this._mailChanged = false
 		return promise

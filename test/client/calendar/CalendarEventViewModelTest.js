@@ -5,6 +5,7 @@ import {CalendarEventViewModel} from "../../../src/calendar/CalendarEventViewMod
 import {downcast} from "../../../src/api/common/utils/Utils"
 import {LazyLoaded} from "../../../src/api/common/utils/LazyLoaded"
 import type {MailboxDetail} from "../../../src/mail/MailModel"
+import {MailModel} from "../../../src/mail/MailModel"
 import type {CalendarEvent} from "../../../src/api/entities/tutanota/CalendarEvent"
 import {createCalendarEvent} from "../../../src/api/entities/tutanota/CalendarEvent"
 import {createGroupInfo} from "../../../src/api/entities/sys/GroupInfo"
@@ -25,6 +26,8 @@ import {CalendarModel} from "../../../src/calendar/CalendarModel"
 import {getAllDayDateUTCFromZone} from "../../../src/calendar/CalendarUtils"
 import {DateTime} from "luxon"
 import {createMailAddressAlias} from "../../../src/api/entities/sys/MailAddressAlias"
+import {RecipientInfoType} from "../../../src/api/common/RecipientInfo"
+import type {ContactModel} from "../../../src/contacts/ContactModel"
 
 const calendarGroupId = "0"
 const now = new Date(2020, 4, 25, 13, 40)
@@ -731,11 +734,20 @@ o.spec("CalendarEventViewModel", function () {
 
 			viewModel.selectGoing(CalendarAttendeeStatus.ACCEPTED)
 
-			o(viewModel.attendees[0]).deepEquals(createCalendarEventAttendee({
-				address: mailAddress,
-				status: CalendarAttendeeStatus.ACCEPTED,
-			}))
-			o(viewModel.attendees[1]).deepEquals(attendee)
+			o(viewModel.attendees()).deepEquals([
+				{
+					address: mailAddress,
+					status: CalendarAttendeeStatus.ACCEPTED,
+					type: RecipientInfoType.INTERNAL,
+					contact: null,
+				},
+				{
+					address: attendee.address,
+					status: attendee.status,
+					type: RecipientInfoType.UNKNOWN,
+					contact: null,
+				},
+			])
 		})
 
 		o("status of own attendee is changed selected in own event", async function () {
@@ -906,19 +918,48 @@ o.spec("CalendarEventViewModel", function () {
 	})
 })
 
-function init({userController, distributor, mailboxDetail, calendars, existingEvent, calendarModel}: {|
+function makeMailModel(): MailModel {
+	return downcast({
+		getRecipientKeyData() {
+			return null
+		}
+	});
+}
+
+function makeContactModel(): ContactModel {
+	return {
+		searchForContact() {
+			return Promise.resolve(null)
+		}
+	}
+}
+
+function init({
+	              userController = makeUserController(),
+	              distributor = makeDistributor(),
+	              mailboxDetail = makeMailboxDetail,
+	              calendars,
+	              existingEvent,
+	              calendarModel = makeCalendarModel(),
+	              mailModel = makeMailModel(),
+	              contactModel = makeContactModel(),
+              }: {|
 	userController?: IUserController,
 	distributor?: CalendarUpdateDistributor,
 	mailboxDetail?: MailboxDetail,
 	calendars: Map<Id, CalendarInfo>,
 	calendarModel?: CalendarModel,
+	mailModel?: MailModel,
+	contactModel?: ContactModel,
 	existingEvent: ?CalendarEvent,
 |}): CalendarEventViewModel {
 	return new CalendarEventViewModel(
-		userController || makeUserController(),
-		distributor || makeDistributor(),
-		calendarModel || makeCalendarModel(),
-		mailboxDetail || makeMailboxDetail(),
+		userController,
+		distributor,
+		calendarModel,
+		mailboxDetail,
+		mailModel,
+		contactModel,
 		now,
 		zone,
 		calendars,

@@ -6,7 +6,7 @@ import {createMoveMailData} from "../api/entities/tutanota/MoveMailData"
 import {load, loadAll, serviceRequestVoid} from "../api/main/Entity"
 import {TutanotaService} from "../api/entities/tutanota/Services"
 import {elementIdPart, getListId, HttpMethod, isSameId, listIdPart} from "../api/common/EntityFunctions"
-import {LockedError, PreconditionFailedError} from "../api/common/error/RestError"
+import {LockedError, NotFoundError, PreconditionFailedError} from "../api/common/error/RestError"
 import {Dialog} from "../gui/base/Dialog"
 import {logins} from "../api/main/LoginController"
 import {createDeleteMailData} from "../api/entities/tutanota/DeleteMailData"
@@ -33,6 +33,10 @@ import {findAndApplyMatchingRule} from "./InboxRuleHandler"
 import {getFromMap} from "../api/common/utils/MapUtils"
 import type {WebsocketCounterData} from "../api/entities/sys/WebsocketCounterData"
 import {worker} from "../api/main/WorkerClient"
+import {SysService} from "../api/entities/sys/Services"
+import {createPublicKeyData} from "../api/entities/sys/PublicKeyData"
+import type {PublicKeyReturn} from "../api/entities/sys/PublicKeyReturn"
+import {PublicKeyReturnTypeRef} from "../api/entities/sys/PublicKeyReturn"
 
 export type MailboxDetail = {
 	mailbox: MailBox,
@@ -292,6 +296,15 @@ export class MailModel {
 
 	isFinalDelete(folder: ?MailFolder): boolean {
 		return folder != null && (folder.folderType === MailFolderType.TRASH || folder.folderType === MailFolderType.SPAM)
+	}
+
+	getRecipientKeyData(mailAddress: string): Promise<?PublicKeyReturn> {
+		return worker.serviceRequest(
+			SysService.PublicKeyService,
+			HttpMethod.GET,
+			createPublicKeyData({mailAddress}),
+			PublicKeyReturnTypeRef
+		).catch(NotFoundError, () => null)
 	}
 }
 

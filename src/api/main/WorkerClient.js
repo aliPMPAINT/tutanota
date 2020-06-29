@@ -47,6 +47,7 @@ import type {Mail} from "../entities/tutanota/Mail"
 import type {EntityRestInterface} from "../worker/rest/EntityRestClient"
 import type {NewSessionData} from "../worker/facades/LoginFacade"
 import {logins} from "./LoginController"
+import type {RecipientInfo} from "../common/RecipientInfo"
 
 assertMainOrNode()
 

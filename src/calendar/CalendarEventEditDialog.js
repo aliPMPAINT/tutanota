@@ -5,7 +5,7 @@ import {DatePicker} from "../gui/base/DatePicker"
 import {Dialog} from "../gui/base/Dialog"
 import type {CalendarInfo} from "./CalendarView"
 import m from "mithril"
-import {TextFieldN} from "../gui/base/TextFieldN"
+import {TextFieldN, Type as TextFieldType} from "../gui/base/TextFieldN"
 import {lang} from "../misc/LanguageViewModel"
 import type {DropDownSelectorAttrs, SelectorItemList} from "../gui/base/DropDownSelectorN"
 import {DropDownSelectorN} from "../gui/base/DropDownSelectorN"
@@ -21,7 +21,6 @@ import {calendarAttendeeStatusDescription, getCalendarName, getStartOfTheWeekOff
 import {TimePicker} from "../gui/base/TimePicker"
 import {createRecipientInfo, getDisplayText} from "../mail/MailUtils"
 import type {MailboxDetail} from "../mail/MailModel"
-import type {CalendarEventAttendee} from "../api/entities/tutanota/CalendarEventAttendee"
 import {Bubble, BubbleTextField} from "../gui/base/BubbleTextField"
 import {MailAddressBubbleHandler} from "../misc/MailAddressBubbleHandler"
 import type {Contact} from "../api/entities/tutanota/Contact"
@@ -33,8 +32,14 @@ import {CheckboxN} from "../gui/base/CheckboxN"
 import {ExpanderButtonN, ExpanderPanelN} from "../gui/base/ExpanderN"
 import {client} from "../misc/ClientDetector"
 import {locator} from "../api/main/MainLocator"
+import type {Guest} from "./CalendarEventViewModel"
 import {CalendarEventViewModel} from "./CalendarEventViewModel"
 import {theme} from "../gui/theme"
+import type {RecipientInfo} from "../api/common/RecipientInfo"
+import {RecipientInfoType} from "../api/common/RecipientInfo"
+import {PasswordIndicator} from "../gui/base/PasswordIndicator"
+import {getPasswordStrength} from "../misc/PasswordUtils"
+import {animations, height} from "../gui/animation/Animations"
 
 const iconForStatus = {
 	[CalendarAttendeeStatus.ACCEPTED]: Icons.CircleCheckmark,
@@ -134,18 +139,20 @@ export function showCalendarEventDialog(date: Date, calendars: Map<Id, CalendarI
 			})
 		}
 
-		const attendeesField = makeAttendeesField((bubble) => {
-			viewModel.addAttendee(bubble.entity.mailAddress)
+		const attendeesField = makeBubbleHandler((bubble) => {
+			viewModel.addAttendee(bubble.entity.mailAddress, bubble.entity.contact)
 			remove(attendeesField.bubbles, bubble)
 		})
 
-		const attendeesExpanded = stream(viewModel.attendees.length > 0)
+		const attendeesExpanded = stream(viewModel.attendees().length > 0)
 
-		const renderInviting = (): Children => viewModel.canModifyGuests() ? m(".mt-negative-m", m(attendeesField)) : null
+		const renderInviting = (): Children => viewModel.canModifyGuests()
+			? m(".mt-negative-m", m(attendeesField))
+			: null
 
 		function renderAttendees() {
 			const ownAttendee = viewModel.findOwnAttendee()
-			const guests = viewModel.attendees.slice()
+			const guests = viewModel.attendees().slice()
 
 			if (ownAttendee) {
 				const indexOfOwn = guests.indexOf(ownAttendee)
@@ -200,7 +207,22 @@ export function showCalendarEventDialog(date: Date, calendars: Map<Id, CalendarI
 					]
 				])
 			}
-			return m("", guests.map(renderGuest))
+			const externalGuests = viewModel.confidential
+				? guests.filter((a) => a.type === RecipientInfoType.EXTERNAL)
+				        .map((guest) => {
+					        return m(TextFieldN, {
+						        value: stream(guest.password || ""),
+						        type: TextFieldType.ExternalPassword,
+						        label: () => lang.get("passwordFor_label", {"{1}": guest.address.address}),
+						        helpLabel: () => m(new PasswordIndicator(() => getPasswordStrength(guest.password || "", []))),
+						        oncreate: ({dom}) => animations.add(dom, height(0, dom.offsetHeight)),
+						        onbeforeremove: ({dom}) => animations.add(dom, height(dom.offsetHeight, 0)),
+						        key: guest.address.address,
+						        oninput: (newValue) => viewModel.updatePassword(guest, newValue)
+					        })
+				        })
+				: []
+			return m("", [guests.map(renderGuest), externalGuests])
 		}
 
 		const renderDateTimePickers = () => renderTwoColumnsIfFits(
@@ -403,6 +425,17 @@ export function showCalendarEventDialog(date: Date, calendars: Map<Id, CalendarI
 			))
 			: null
 
+		const renderConfidentialButton = () => viewModel.attendees().find(a => a.type === RecipientInfoType.EXTERNAL)
+			? m(ButtonN, {
+					label: "confidential_action",
+					click: () => viewModel.selectConfidential(!viewModel.confidential),
+					icon: () => viewModel.confidential ? Icons.Lock : Icons.Unlock,
+					isSelected: () => viewModel.confidential,
+					noBubble: true,
+				}
+			)
+			: null
+
 		function renderHeading() {
 			return m(".flex.items-end", [
 				m(TextFieldN, {
@@ -411,9 +444,12 @@ export function showCalendarEventDialog(date: Date, calendars: Map<Id, CalendarI
 					disabled: viewModel.readOnly,
 					class: "big-input pt flex-grow mr-s"
 				}),
+				renderConfidentialButton(),
 				renderDeleteButton(),
 			])
 		}
+
+		viewModel.attendees.map(m.redraw)
 
 		const dialog = Dialog.largeDialog(
 			{
@@ -441,7 +477,7 @@ export function showCalendarEventDialog(date: Date, calendars: Map<Id, CalendarI
 }
 
 
-function renderStatusIcon(viewModel: CalendarEventViewModel, attendee: CalendarEventAttendee, ownAttendee: ?CalendarEventAttendee): Children {
+function renderStatusIcon(viewModel: CalendarEventViewModel, attendee: Guest, ownAttendee: ?Guest): Children {
 	const icon = iconForStatus[attendee.status]
 
 	const editable = ownAttendee === attendee && viewModel.canModifyOwnAttendance()
@@ -509,7 +545,7 @@ function createEndTypeValues() {
 	]
 }
 
-function makeAttendeesField(onBubbleCreated: (Bubble<RecipientInfo>) => void): BubbleTextField<RecipientInfo> {
+function makeBubbleHandler(onBubbleCreated: (Bubble<RecipientInfo>) => void): BubbleTextField<RecipientInfo> {
 	function createBubbleContextButtons(name: string, mailAddress: string): Array<ButtonAttrs | string> {
 		let buttonAttrs = [mailAddress]
 		buttonAttrs.push({
@@ -536,6 +572,7 @@ function makeAttendeesField(onBubbleCreated: (Bubble<RecipientInfo>) => void): B
 		},
 
 	})
+
 	const invitePeopleValueTextField = new BubbleTextField("addGuest_label", bubbleHandler, {marginLeft: 0})
 	return invitePeopleValueTextField
 }

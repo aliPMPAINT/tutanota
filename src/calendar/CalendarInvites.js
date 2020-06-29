@@ -11,7 +11,7 @@ import type {CalendarAttendeeStatusEnum} from "../api/common/TutanotaConstants"
 import {assertNotNull, clone} from "../api/common/utils/Utils"
 import {getTimeZone, incrementSequence} from "./CalendarUtils"
 import {createMailAddress} from "../api/entities/tutanota/MailAddress"
-import type {EncryptedMailAddress} from "../api/entities/tutanota/EncryptedMailAddress"
+import type {Recipient} from "../mail/MailEditor"
 
 function loadOrCreateCalendarInfo() {
 	return loadCalendarInfos()
@@ -86,8 +86,10 @@ export function replyToEventInvitation(
 	})
 }
 
-export function getEventCancellationRecipients(event: CalendarEvent, ownAddresses: $ReadOnlyArray<string>): Array<EncryptedMailAddress> {
-	return event.attendees
-	            .filter(a => !ownAddresses.includes(a.address.address))
-	            .map(a => a.address)
+export function getEventCancellationRecipients(event: CalendarEvent, ownAddresses: $ReadOnlyArray<string>): Array<Recipient> {
+	// TODO
+	return []
+	// return event.attendees
+	//             .filter(a => !ownAddresses.includes(a.address.address))
+	//             .map(a => a.address)
 }

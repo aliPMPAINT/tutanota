@@ -1,4 +1,5 @@
 //@flow
+import type {Recipient} from "../mail/MailEditor"
 import {MailEditor} from "../mail/MailEditor"
 import {lang} from "../misc/LanguageViewModel"
 import {makeInvitationCalendarFile} from "./CalendarImporter"
@@ -6,7 +7,6 @@ import type {CalendarAttendeeStatusEnum, CalendarMethodEnum} from "../api/common
 import {CalendarMethod, getAttendeeStatus} from "../api/common/TutanotaConstants"
 import {calendarAttendeeStatusSymbol, formatEventDuration, getTimeZone} from "./CalendarUtils"
 import type {CalendarEvent} from "../api/entities/tutanota/CalendarEvent"
-import type {EncryptedMailAddress} from "../api/entities/tutanota/EncryptedMailAddress"
 import {MailModel} from "../mail/MailModel"
 import type {MailAddress} from "../api/entities/tutanota/MailAddress"
 import type {File as TutanotaFile} from "../api/entities/tutanota/File"
@@ -15,11 +15,11 @@ import {theme} from "../gui/theme"
 import {assertNotNull} from "../api/common/utils/Utils"
 
 export interface CalendarUpdateDistributor {
-	sendInvite(existingEvent: CalendarEvent, recipients: $ReadOnlyArray<EncryptedMailAddress>): Promise<void>;
+	sendInvite(existingEvent: CalendarEvent, recipients: $ReadOnlyArray<Recipient>): Promise<void>;
 
-	sendUpdate(event: CalendarEvent, recipients: $ReadOnlyArray<EncryptedMailAddress>): Promise<void>;
+	sendUpdate(event: CalendarEvent, recipients: $ReadOnlyArray<Recipient>): Promise<void>;
 
-	sendCancellation(event: CalendarEvent, recipients: $ReadOnlyArray<EncryptedMailAddress>): Promise<void>;
+	sendCancellation(event: CalendarEvent, recipients: $ReadOnlyArray<Recipient>): Promise<void>;
 
 	sendResponse(event: CalendarEvent, sender: MailAddress, status: CalendarAttendeeStatusEnum): Promise<void>;
 }
@@ -31,7 +31,7 @@ export class CalendarMailDistributor implements CalendarUpdateDistributor {
 		this._mailModel = mailModel
 	}
 
-	sendInvite(existingEvent: CalendarEvent, recipients: $ReadOnlyArray<EncryptedMailAddress>): Promise<void> {
+	sendInvite(existingEvent: CalendarEvent, recipients: $ReadOnlyArray<Recipient>): Promise<void> {
 		return this._mailModel.getUserMailboxDetails().then((mailboxDetails) => {
 			if (existingEvent.organizer == null) {
 				throw new Error("Cannot send invite if organizer is not sent")
@@ -51,7 +51,7 @@ export class CalendarMailDistributor implements CalendarUpdateDistributor {
 		})
 	}
 
-	sendUpdate(event: CalendarEvent, recipients: $ReadOnlyArray<EncryptedMailAddress>): Promise<void> {
+	sendUpdate(event: CalendarEvent, recipients: $ReadOnlyArray<Recipient>): Promise<void> {
 		return this._mailModel.getUserMailboxDetails().then((mailboxDetails) => {
 			const editor = new MailEditor(mailboxDetails)
 			const bcc = recipients.map(({name, address}) => ({
@@ -66,7 +66,7 @@ export class CalendarMailDistributor implements CalendarUpdateDistributor {
 		})
 	}
 
-	sendCancellation(event: CalendarEvent, recipients: $ReadOnlyArray<EncryptedMailAddress>): Promise<void> {
+	sendCancellation(event: CalendarEvent, recipients: $ReadOnlyArray<Recipient>): Promise<void> {
 		return this._mailModel.getUserMailboxDetails().then((mailboxDetails) => {
 			const editor = new MailEditor(mailboxDetails)
 			const bcc = recipients.map(({name, address}) => ({

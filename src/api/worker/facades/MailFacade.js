@@ -18,7 +18,8 @@ import {createDraftUpdateData} from "../../entities/tutanota/DraftUpdateData"
 import {DraftUpdateReturnTypeRef} from "../../entities/tutanota/DraftUpdateReturn"
 import type {SendDraftData} from "../../entities/tutanota/SendDraftData"
 import {createSendDraftData} from "../../entities/tutanota/SendDraftData"
-import {isExternalSecureRecipient, recipientInfoType} from "../../common/RecipientInfo"
+import type {RecipientInfo} from "../../common/RecipientInfo"
+import {isExternalSecureRecipient, RecipientInfoType} from "../../common/RecipientInfo"
 import {RecipientsNotFoundError} from "../../common/error/RecipientsNotFoundError"
 import {generateKeyFromPassphrase, generateRandomSalt} from "../crypto/Bcrypt"
 import {KeyLength} from "../crypto/CryptoConstants"
@@ -366,7 +367,7 @@ export class MailFacade {
 
 				// copy password information if this is an external contact
 				// otherwise load the key information from the server
-				if (recipientInfo.type === recipientInfoType.external && recipientInfo.contact) {
+				if (recipientInfo.type === RecipientInfoType.EXTERNAL && recipientInfo.contact) {
 					let password = recipientInfo.contact.presharedPassword
 
 					if (password == null && recipientInfo.contact.autoTransmitPassword !== "") {
