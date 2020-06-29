@@ -37,10 +37,10 @@ import {CalendarEventViewModel} from "./CalendarEventViewModel"
 import {theme} from "../gui/theme"
 
 const iconForStatus = {
-	[CalendarAttendeeStatus.ACCEPTED]: Icons.Checkmark,
-	[CalendarAttendeeStatus.TENTATIVE]: BootIcons.Help,
-	[CalendarAttendeeStatus.DECLINED]: Icons.Cancel,
-	[CalendarAttendeeStatus.NEEDS_ACTION]: Icons.Hourgralss,
+	[CalendarAttendeeStatus.ACCEPTED]: Icons.CircleCheckmark,
+	[CalendarAttendeeStatus.TENTATIVE]: Icons.CircleHelp,
+	[CalendarAttendeeStatus.DECLINED]: Icons.CircleReject,
+	[CalendarAttendeeStatus.NEEDS_ACTION]: Icons.CircleEmpty,
 }
 
 const alarmIntervalItems = [
