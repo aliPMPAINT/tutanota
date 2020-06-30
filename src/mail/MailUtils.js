@@ -46,7 +46,8 @@ assertMainOrNode()
  * @param doNotResolveContact
  * @returns {{_type: string, type: string, mailAddress: string, name: ?string, contact: *}}
  */
-export function createRecipientInfo(mailAddress: string, name: ?string, contact: ?Contact, doNotResolveContact: boolean): RecipientInfo {
+export function createRecipientInfo(mailAddress: string, name: ?string, contact: ?Contact, doNotResolveContact: boolean = false
+): RecipientInfo {
 	let type = isTutanotaMailAddress(mailAddress) ? RecipientInfoType.INTERNAL : RecipientInfoType.UNKNOWN
 	let recipientInfo: RecipientInfo = {
 		type,

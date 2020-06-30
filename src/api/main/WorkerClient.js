@@ -220,15 +220,17 @@ export class WorkerClient implements EntityRestInterface {
 		return this._postRequest(new Request('createMailFolder', arguments))
 	}
 
-	createMailDraft(subject: string, body: string, senderAddress: string, senderName: string, toRecipients: RecipientInfo[], ccRecipients: RecipientInfo[], bccRecipients: RecipientInfo[], conversationType: ConversationTypeEnum, previousMessageId: ?Id, attachments: ?Array<TutanotaFile | DataFile | FileReference>, confidential: boolean, replyTos: RecipientInfo[]): Promise<Mail> {
+	createMailDraft(subject: string, body: string, senderAddress: string, senderName: string, toRecipients: $ReadOnlyArray<RecipientInfo>, ccRecipients: $ReadOnlyArray<RecipientInfo>, bccRecipients: $ReadOnlyArray<RecipientInfo>, conversationType: ConversationTypeEnum, previousMessageId: ?Id, attachments: ?Array<TutanotaFile | DataFile | FileReference>, confidential: boolean, replyTos: $ReadOnlyArray<RecipientInfo>): Promise<Mail> {
 		return this._postRequest(new Request('createMailDraft', arguments))
 	}
 
-	updateMailDraft(subject: string, body: string, senderAddress: string, senderName: string, toRecipients: RecipientInfo[], ccRecipients: RecipientInfo[], bccRecipients: RecipientInfo[], attachments: ?Array<TutanotaFile | DataFile | FileReference>, confidential: boolean, draft: Mail): Promise<Mail> {
+	updateMailDraft(subject: string, body: string, senderAddress: string, senderName: string, toRecipients: $ReadOnlyArray<RecipientInfo>,
+	                ccRecipients: $ReadOnlyArray<RecipientInfo>, bccRecipients: $ReadOnlyArray<RecipientInfo>, 
+	                attachments: ?$ReadOnlyArray<TutanotaFile | DataFile | FileReference>, confidential: boolean, draft: Mail): Promise<Mail> {
 		return this._postRequest(new Request('updateMailDraft', arguments))
 	}
 
-	sendMailDraft(draft: Mail, recipientInfos: RecipientInfo[], language: string, calendarMethods: Array<[IdTuple, CalendarMethodEnum]> = []): Promise<void> {
+	sendMailDraft(draft: Mail, recipientInfos: $ReadOnlyArray<RecipientInfo>, language: string, calendarMethods: Array<[IdTuple, CalendarMethodEnum]> = []): Promise<void> {
 		return this._postRequest(new Request('sendMailDraft', [draft, recipientInfos, language, calendarMethods]))
 	}
 
