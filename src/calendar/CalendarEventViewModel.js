@@ -40,7 +40,8 @@ import {findAndRemove, firstThrow} from "../api/common/utils/ArrayUtils"
 import {NotFoundError} from "../api/common/error/RestError"
 import type {User} from "../api/entities/sys/User"
 import {incrementDate} from "../api/common/utils/DateUtils"
-import type {CalendarUpdateDistributor} from "./CalendarUpdateDistributor"
+import type {CalendarUpdateDistributor, ExternalConfidentialModeEnum} from "./CalendarUpdateDistributor"
+import {ExternalConfidentialMode} from "./CalendarUpdateDistributor"
 import type {IUserController} from "../api/main/UserController"
 import type {TranslationKeyType} from "../misc/TranslationKey"
 import {createMailAddress} from "../api/entities/tutanota/MailAddress"
@@ -617,14 +618,17 @@ export class CalendarEventViewModel {
 				askForUpdates: (sendOutUpdate) => {
 					return doCreateEvent()
 						.then(() => sendOutUpdate && existingAttendees.length
-							? this._distributor.sendUpdate(newEvent, this._distributionAddresses(existingAttendees))
+							? this._distributor.sendUpdate(newEvent, this._distributionAddresses(existingAttendees),
+								this._confidentialMode())
 							: Promise.resolve())
 						.then(() => sendOutUpdate && newAttendees.length
-							? this._distributor.sendInvite(newEvent, this._distributionAddresses(newAttendees))
+							? this._distributor.sendInvite(newEvent, this._distributionAddresses(newAttendees),
+								this._confidentialMode())
 							: Promise.resolve())
 						.then(() => {
 							sendOutUpdate && removedAttendees.length
-								? this._distributor.sendCancellation(newEvent, this._distributionAddresses(removedAttendees))
+								? this._distributor.sendCancellation(newEvent, this._distributionAddresses(removedAttendees),
+								this._confidentialMode())
 								: Promise.resolve()
 						})
 				}
@@ -633,7 +637,7 @@ export class CalendarEventViewModel {
 			// just create the event
 			return doCreateEvent().then(() => {
 				if (newAttendees.length) {
-					return this._distributor.sendInvite(newEvent, this._distributionAddresses(newAttendees))
+					return this._distributor.sendInvite(newEvent, this._distributionAddresses(newAttendees), this._confidentialMode())
 				}
 			}).then(() => {
 				return {
@@ -700,6 +704,10 @@ export class CalendarEventViewModel {
 			    }
 			    this.attendees(newAttendees)
 		    })
+	}
+
+	_confidentialMode(): ExternalConfidentialModeEnum {
+		return this.confidential ? ExternalConfidentialMode.CONFIDENTIAL : ExternalConfidentialMode.UNCONFIDENTIAL
 	}
 }
 
