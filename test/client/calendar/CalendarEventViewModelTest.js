@@ -1,11 +1,10 @@
 //@flow
 import o from "ospec/ospec.js"
-import type {EventCreateResult} from "../../../src/calendar/CalendarEventViewModel"
+import type {EventCreateResult, Guest} from "../../../src/calendar/CalendarEventViewModel"
 import {CalendarEventViewModel} from "../../../src/calendar/CalendarEventViewModel"
 import {downcast} from "../../../src/api/common/utils/Utils"
 import {LazyLoaded} from "../../../src/api/common/utils/LazyLoaded"
 import type {MailboxDetail} from "../../../src/mail/MailModel"
-import {MailModel} from "../../../src/mail/MailModel"
 import type {CalendarEvent} from "../../../src/api/entities/tutanota/CalendarEvent"
 import {createCalendarEvent} from "../../../src/api/entities/tutanota/CalendarEvent"
 import {createGroupInfo} from "../../../src/api/entities/sys/GroupInfo"
@@ -27,7 +26,6 @@ import {getAllDayDateUTCFromZone} from "../../../src/calendar/CalendarUtils"
 import {DateTime} from "luxon"
 import {createMailAddressAlias} from "../../../src/api/entities/sys/MailAddressAlias"
 import {RecipientInfoType} from "../../../src/api/common/RecipientInfo"
-import type {ContactModel} from "../../../src/contacts/ContactModel"
 
 const calendarGroupId = "0"
 const now = new Date(2020, 4, 25, 13, 40)
@@ -128,7 +126,6 @@ o.spec("CalendarEventViewModel", function () {
 		o(viewModel.canModifyOwnAttendance()).equals(true)
 		o(viewModel.canModifyOrganizer()).equals(false)
 		o(viewModel.possibleOrganizers).deepEquals([existingEvent.organizer])
-		o(viewModel.going).equals(CalendarAttendeeStatus.ACCEPTED)
 	})
 
 	o("in writable calendar", function () {
@@ -360,9 +357,14 @@ o.spec("CalendarEventViewModel", function () {
 			const distributor = makeDistributor()
 			const oldGuest = "old-attendee@example.com"
 			const newGuest = "new-attendee@example.com"
-			const toRemoveGuest = "remove-attendee@example.com"
+			const toRemoveGuest: Guest = {
+				address: createEncryptedMailAddress({address: "remove-attendee@example.com"}),
+				type: RecipientInfoType.EXTERNAL,
+				status: CalendarAttendeeStatus.ACCEPTED,
+				password: null,
+			}
 			const toRemoveAttendee = createCalendarEventAttendee({
-				address: createEncryptedMailAddress({address: toRemoveGuest})
+				address: toRemoveGuest.address,
 			})
 			const existingEvent = createCalendarEvent({
 				_id: ["listId", "eventId"],
@@ -398,9 +400,14 @@ o.spec("CalendarEventViewModel", function () {
 			const distributor = makeDistributor()
 			const oldGuest = "old-attendee@example.com"
 			const newGuest = "new-attendee@example.com"
-			const toRemoveGuest = "remove-attendee@example.com"
+			const toRemoveGuest: Guest = {
+				address: createEncryptedMailAddress({address: "remove-attendee@example.com"}),
+				type: RecipientInfoType.EXTERNAL,
+				status: CalendarAttendeeStatus.ACCEPTED,
+				password: null,
+			}
 			const toRemoveAttendee = createCalendarEventAttendee({
-				address: createEncryptedMailAddress({address: toRemoveGuest})
+				address: toRemoveGuest.address,
 			})
 			const existingEvent = createCalendarEvent({
 				_id: ["listId", "eventId"],
@@ -434,9 +441,14 @@ o.spec("CalendarEventViewModel", function () {
 			const calendars = makeCalendars("own")
 			const calendarModel = makeCalendarModel()
 			const distributor = makeDistributor()
-			const toRemoveGuest = "remove-attendee@example.com"
+			const toRemoveGuest: Guest = {
+				address: createEncryptedMailAddress({address: "remove-attendee@example.com"}),
+				type: RecipientInfoType.EXTERNAL,
+				status: CalendarAttendeeStatus.ACCEPTED,
+				password: null,
+			}
 			const toRemoveAttendee = createCalendarEventAttendee({
-				address: createEncryptedMailAddress({address: toRemoveGuest})
+				address: toRemoveGuest.address,
 			})
 			const existingEvent = createCalendarEvent({
 				_id: ["listId", "eventId"],
@@ -858,17 +870,22 @@ o.spec("CalendarEventViewModel", function () {
 
 		o("cannot modify in own calendar when there were guests and they were removed", function () {
 			const calendars = makeCalendars("own")
-			const guestAddress = "guest@tutanota.com"
+			const toRemoveGuest: Guest = {
+				address: createEncryptedMailAddress({address: "remove-attendee@example.com"}),
+				type: RecipientInfoType.EXTERNAL,
+				status: CalendarAttendeeStatus.ACCEPTED,
+				password: null,
+			}
 			const viewModel = init({
 				calendars,
 				existingEvent: createCalendarEvent({
 					_id: ["listId", "calendarId"],
 					_ownerGroup: calendarGroupId,
-					attendees: [createCalendarEventAttendee({address: createEncryptedMailAddress({address: guestAddress})})]
+					attendees: [createCalendarEventAttendee({address: toRemoveGuest.address})]
 				})
 			})
 
-			viewModel.removeAttendee(guestAddress)
+			viewModel.removeAttendee(toRemoveGuest)
 
 			o(viewModel.canModifyOrganizer()).equals(false)
 		})
@@ -918,21 +935,6 @@ o.spec("CalendarEventViewModel", function () {
 	})
 })
 
-function makeMailModel(): MailModel {
-	return downcast({
-		getRecipientKeyData() {
-			return null
-		}
-	});
-}
-
-function makeContactModel(): ContactModel {
-	return {
-		searchForContact() {
-			return Promise.resolve(null)
-		}
-	}
-}
 
 function init({
 	              userController = makeUserController(),
@@ -941,16 +943,12 @@ function init({
 	              calendars,
 	              existingEvent,
 	              calendarModel = makeCalendarModel(),
-	              mailModel = makeMailModel(),
-	              contactModel = makeContactModel(),
               }: {|
 	userController?: IUserController,
 	distributor?: CalendarUpdateDistributor,
 	mailboxDetail?: MailboxDetail,
 	calendars: Map<Id, CalendarInfo>,
 	calendarModel?: CalendarModel,
-	mailModel?: MailModel,
-	contactModel?: ContactModel,
 	existingEvent: ?CalendarEvent,
 |}): CalendarEventViewModel {
 	return new CalendarEventViewModel(
@@ -958,8 +956,8 @@ function init({
 		distributor,
 		calendarModel,
 		mailboxDetail,
-		mailModel,
-		contactModel,
+		// TODO
+		() => downcast(null),
 		now,
 		zone,
 		calendars,

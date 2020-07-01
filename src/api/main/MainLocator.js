@@ -19,6 +19,7 @@ import {getTimeZone} from "../../calendar/CalendarUtils"
 import type {ContactModel} from "../../contacts/ContactModel"
 import {ContactModelImpl} from "../../contacts/ContactModel"
 import {LazyLoaded} from "../common/utils/LazyLoaded"
+import type {SendMailModel} from "../../mail/SendMailModel"
 
 assertMainOrNode()
 
@@ -50,22 +51,21 @@ export const locator: MainLocatorType = ({
 
 		this.calendarUpdateDistributor = () =>
 			asyncImport(importBase, `${env.rootPathPrefix}src/calendar/CalendarUpdateDistributor.js`)
-				.then(({CalendarMailDistributor}) => new CalendarMailDistributor(this.mailModel))
+				.then(({CalendarMailDistributor}) => new CalendarMailDistributor())
 
 		this.calendarEventViewModel = (date, calendars, mailboxDetail, existingEvent) =>
 			Promise.all([
 				this.calendarUpdateDistributor(),
 				(asyncImport(importBase, `${env.rootPathPrefix}src/calendar/CalendarEventViewModel.js`):
 					Promise<{CalendarEventViewModel: Class<CalendarEventViewModel>}>),
-				this.contactModel(),
-			]).then(([distributor, {CalendarEventViewModel}, contactModel]) =>
+				(asyncImport(importBase, `${env.rootPathPrefix}src/mail/SendMailModel.js`): Promise<{SendMailModel: Class<SendMailModel>}>)
+			]).then(([distributor, {CalendarEventViewModel}, {SendMailModel}]) =>
 				new CalendarEventViewModel(
 					logins.getUserController(),
 					distributor,
 					this.calendarModel(),
 					mailboxDetail,
-					this.mailModel,
-					contactModel,
+					(mailboxDetail) => new SendMailModel(mailboxDetail),
 					date,
 					getTimeZone(),
 					calendars,

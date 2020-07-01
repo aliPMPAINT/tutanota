@@ -1,6 +1,6 @@
 // @flow
 import {Dialog} from "../gui/base/Dialog"
-import type {Language, TranslationKey} from "../misc/LanguageViewModel"
+import type {Language} from "../misc/LanguageViewModel"
 import {_getSubstitutedLanguageCode, getAvailableLanguageCode, lang, languages} from "../misc/LanguageViewModel"
 import type {ConversationTypeEnum} from "../api/common/TutanotaConstants"
 import {ConversationType, MAX_ATTACHMENT_SIZE, OperationType, ReplyType} from "../api/common/TutanotaConstants"
@@ -8,16 +8,8 @@ import {load, setup, update} from "../api/main/Entity"
 import {worker} from "../api/main/WorkerClient"
 import type {RecipientInfo} from "../api/common/RecipientInfo"
 import {isExternal} from "../api/common/RecipientInfo"
-import {
-	AccessBlockedError,
-	LockedError,
-	NotAuthorizedError,
-	NotFoundError,
-	PreconditionFailedError,
-	TooManyRequestsError
-} from "../api/common/error/RestError"
+import {LockedError, NotAuthorizedError, NotFoundError, PreconditionFailedError, TooManyRequestsError} from "../api/common/error/RestError"
 import {UserError} from "../api/common/error/UserError"
-import {RecipientsNotFoundError} from "../api/common/error/RecipientsNotFoundError"
 import {assertMainOrNode} from "../api/Env"
 import {getPasswordStrength} from "../misc/PasswordUtils"
 import {assertNotNull, downcast, neverNull} from "../api/common/utils/Utils"
@@ -42,13 +34,11 @@ import {isSameId, stringToCustomId} from "../api/common/EntityFunctions"
 import {FileNotFoundError} from "../api/common/error/FileNotFoundError"
 import {logins} from "../api/main/LoginController"
 import type {MailAddress} from "../api/entities/tutanota/MailAddress"
-import {showProgressDialog} from "../gui/base/ProgressDialog"
 import type {MailboxDetail} from "./MailModel"
 import {locator} from "../api/main/MainLocator"
 import {LazyContactListId} from "../contacts/ContactUtils"
 import {RecipientNotResolvedError} from "../api/common/error/RecipientNotResolvedError"
 import stream from "mithril/stream/stream.js"
-import {checkApprovalStatus} from "../misc/ErrorHandlerImpl"
 import type {EntityEventsListener} from "../api/main/EventController"
 import {isUpdateForTypeRef} from "../api/main/EventController"
 import {CustomerPropertiesTypeRef} from "../api/entities/sys/CustomerProperties"
@@ -56,6 +46,7 @@ import type {InlineImages} from "./MailViewer"
 import {isMailAddress} from "../misc/FormatValidator"
 import {createApprovalMail} from "../api/entities/monitor/ApprovalMail"
 import type {EncryptedMailAddress} from "../api/entities/tutanota/EncryptedMailAddress"
+import {remove} from "../api/common/utils/ArrayUtils"
 
 assertMainOrNode()
 
@@ -69,9 +60,11 @@ function toRecipient({address, name}: MailAddress): Recipient {
 }
 
 type EditorAttachment = TutanotaFile | DataFile | FileReference
+type RecipientField = "to" | "cc" | "bcc"
 
 export class SendMailModel {
 	draft: ?Mail;
+	recipientsChanged: Stream<void>;
 	_senderAddress: string;
 	_selectedNotificationLanguage: string;
 	_toRecipients: Array<RecipientInfo>;
@@ -118,6 +111,8 @@ export class SendMailModel {
 		this._blockExternalContent = true
 		this._mentionedInlineImages = []
 		this._inlineImageElements = []
+		// TODO: update this stream when something changes
+		this.recipientsChanged = stream(undefined)
 
 		let props = logins.getUserController().props
 
@@ -148,6 +143,15 @@ export class SendMailModel {
 			}
 		}
 		this._mailChanged = false
+	}
+
+	setSubject(subject: string) {
+		this._subject(subject)
+	}
+
+	selectSender(senderAddress: string) {
+		// TODO: checks
+		this._senderAddress = senderAddress
 	}
 
 	getPasswordStrength(recipientInfo: RecipientInfo) {
@@ -193,10 +197,8 @@ export class SendMailModel {
 				console.log("could not load conversation entry", e);
 			})
 			.then(() => {
-				// We don't want to wait for the editor to be initialized, otherwise it will never be shown
-				this._setMailData(previousMail, previousMail.confidential, conversationType, previousMessageId, senderMailAddress,
+				return this._setMailData(previousMail, previousMail.confidential, conversationType, previousMessageId, senderMailAddress,
 					recipients, attachments, subject, bodyText, replyTos)
-				    .then(() => this._replaceInlineImages(inlineImages))
 			})
 	}
 
@@ -256,9 +258,8 @@ export class SendMailModel {
 				bcc: bccRecipients.map(toRecipient),
 			}
 			// We don't want to wait for the editor to be initialized, otherwise it will never be shown
-			this._setMailData(previousMail, confidential, conversationType, previousMessageId, sender.address, recipients, attachments,
+			return this._setMailData(previousMail, confidential, conversationType, previousMessageId, sender.address, recipients, attachments,
 				subject, bodyText, replyTos)
-			    .then(() => this._replaceInlineImages(inlineImages))
 		})
 	}
 
@@ -290,6 +291,40 @@ export class SendMailModel {
 		return Promise.resolve()
 	}
 
+	addRecipient(type: RecipientField, recipient: Recipient): RecipientInfo {
+		const recipientInfo = createRecipientInfo(recipient.address, recipient.name, recipient.contact)
+		this._recipientList(type).push(recipientInfo)
+		resolveRecipientInfo(recipientInfo).then(() => this.recipientsChanged(undefined))
+		recipientInfo.resolveContactPromise && recipientInfo.resolveContactPromise.then(() => this.recipientsChanged(undefined))
+		this._mailChanged = true
+		this.recipientsChanged(undefined)
+		return recipientInfo
+	}
+
+	removeRecipient(type: RecipientField, recipient: RecipientInfo) {
+		remove(this._recipientList(type), recipient)
+		this.recipientsChanged(undefined)
+	}
+
+	setPassword(recipient: RecipientInfo, password: string) {
+		if (recipient.contact) {
+			recipient.contact.presharedPassword = password
+		}
+		this.recipientsChanged(undefined)
+		return recipient
+	}
+
+	_recipientList(type: RecipientField): Array<RecipientInfo> {
+		if (type === "to") {
+			return this._toRecipients
+		} else if (type === "cc") {
+			return this._ccRecipients
+		} else if (type === "bcc") {
+			return this._bccRecipients
+		}
+		throw new Error()
+	}
+
 	// TODO
 	show() {
 		locator.eventController.addEntityListener(this._entityEventReceived)
@@ -300,7 +335,8 @@ export class SendMailModel {
 		locator.eventController.removeEntityListener(this._entityEventReceived)
 	}
 
-	attachFiles(files: Array<TutanotaFile | DataFile | FileReference>) {
+	/** @returns files which were too big to add */
+	attachFiles(files: Array<EditorAttachment>): Array<EditorAttachment> {
 		let totalSize = 0
 		this._attachments.forEach(file => {
 			totalSize += Number(file.size)
@@ -308,17 +344,14 @@ export class SendMailModel {
 		let tooBigFiles = [];
 		files.forEach(file => {
 			if (totalSize + Number(file.size) > MAX_ATTACHMENT_SIZE) {
-				tooBigFiles.push(file.name)
+				tooBigFiles.push(file)
 			} else {
 				totalSize += Number(file.size)
 				this._attachments.push(file)
 			}
 		})
-		// TODO
-		if (tooBigFiles.length > 0) {
-			Dialog.error(() => lang.get("tooBigAttachment_msg") + tooBigFiles.join(", "));
-		}
 		this._mailChanged = true
+		return tooBigFiles
 	}
 
 	/**
@@ -373,30 +406,36 @@ export class SendMailModel {
 		return (this._allRecipients().find(r => isExternal(r)) != null)
 	}
 
-	send(body: string) {
+	/**
+	 * @reject {RecipientNotResolvedError}
+	 * @reject {RecipientsNotFoundError}
+	 * @reject {TooManyRequestsError}
+	 * @reject {AccessBlockedError}
+	 * @reject {FileNotFoundError}
+	 * @reject {PreconditionFailedError}
+	 * @reject {LockedError}
+	 * @reject {UserError}
+	 */
+	send(body: string): Promise<*> {
 		return Promise
 			.resolve()
 			.then(() => {
-				if (this._toRecipients.length === 0 &&
-					this._ccRecipients.length === 0 &&
-					this._bccRecipients.length === 0) {
+				if (this._toRecipients.length === 0 && this._ccRecipients.length === 0 && this._bccRecipients.length === 0) {
 					throw new UserError("noRecipients_msg")
 				}
 			})
 			.then(() => {
-				let isApprovalMail = false
-				let send = this
+				return this
 					._waitForResolvedRecipients() // Resolve all added recipients before trying to send it
 					.then((recipients) => {
 						if (recipients.length === 1 && recipients[0].mailAddress.toLowerCase().trim() === "approval@tutao.de") {
-							isApprovalMail = true
-							return recipients
+							return [recipients, true]
 						} else {
-							return this.saveDraft(body, /*saveAttachments*/false)
-							           .return(recipients)
+							return this.saveDraft(body, /*saveAttachments*/true)
+							           .return([recipients, false])
 						}
 					})
-					.then(resolvedRecipients => {
+					.then(([resolvedRecipients, isApprovalMail]) => {
 						if (isApprovalMail) {
 							return this._sendApprovalMail(body)
 						} else {
@@ -418,44 +457,21 @@ export class SendMailModel {
 									return this._updateContacts(resolvedRecipients)
 										// TODO
 										       .then(() => ({calendarFileMethods: []}))
-										       .then(({calendarFileMethods}) => worker.sendMailDraft(neverNull(this.draft), resolvedRecipients,
+										       .then(({calendarFileMethods}) => worker.sendMailDraft(
+											       neverNull(this.draft),
+											       resolvedRecipients,
 											       // TODO
-											       this._selectedNotificationLanguage, calendarFileMethods))
+											       this._selectedNotificationLanguage,
+											       calendarFileMethods
+										       ))
 										       .then(() => this._updatePreviousMail())
 										       .then(() => this._updateExternalLanguage())
 										       .then(() => this._close())
-										       .catch(LockedError, e => Dialog.error("operationStillActive_msg"))
 								}
 							})
 						}
 					})
-					// TODO: return/throw errors
-					// .catch(RecipientNotResolvedError, e => {
-					// 	return Dialog.error("tooManyAttempts_msg")
-					// })
-					// .catch(RecipientsNotFoundError, e => {
-					// 	let invalidRecipients = e.message.join("\n")
-					// 	return Dialog.error(() => lang.get("invalidRecipients_msg") + "\n"
-					// 		+ invalidRecipients)
-					// })
-					// .catch(TooManyRequestsError, e => Dialog.error(tooManyRequestsError))
-					// .catch(AccessBlockedError, e => {
-					// 	// special case: the approval status is set to SpamSender, but the update has not been received yet, so use SpamSender as default
-					// 	return checkApprovalStatus(true, "4")
-					// 		.then(() => {
-					// 			console.log("could not send mail (blocked access)", e)
-					// 		})
-					// })
-					// .catch(FileNotFoundError, () => Dialog.error("couldNotAttachFile_msg"))
-					// .catch(PreconditionFailedError, () => Dialog.error("operationStillActive_msg"))
 
-					return send
-
-			})
-			.catch(UserError, e => Dialog.error(e.message))
-			.catch(e => {
-				console.log(typeof e, e)
-				throw e
 			})
 	}
 
@@ -506,17 +522,21 @@ export class SendMailModel {
 		return Promise.all(resolvedRecipients.map(r => {
 			const {contact} = r
 			if (contact) {
-				if (!contact._id && (!logins.getUserController().props.noAutomaticContacts
-					|| (isExternal(r) && this._confidentialButtonState))) {
+				if (!contact._id
+					&& (!logins.getUserController().props.noAutomaticContacts || (isExternal(r) && this._confidentialButtonState))
+				) {
 					if (isExternal(r) && this._confidentialButtonState) {
-						contact.presharedPassword = this.getPasswordField(r).value().trim()
+						contact.presharedPassword = this._getPassword(r).trim()
 					}
 					return LazyContactListId.getAsync().then(listId => {
 						return setup(listId, contact)
 					})
-				} else if (contact._id && isExternal(r) && this._confidentialButtonState
-					&& contact.presharedPassword !== this.getPasswordField(r).value().trim()) {
-					contact.presharedPassword = this.getPasswordField(r).value().trim()
+				} else if (contact._id
+					&& isExternal(r)
+					&& this._confidentialButtonState
+					&& contact.presharedPassword !== this._getPassword(r).trim()
+				) {
+					contact.presharedPassword = this._getPassword(r).trim()
 					return update(contact)
 				} else {
 					return Promise.resolve()
@@ -525,6 +545,10 @@ export class SendMailModel {
 				return Promise.resolve()
 			}
 		}))
+	}
+
+	_getPassword(r: RecipientInfo): string {
+		return r.contact && r.contact.presharedPassword || ""
 	}
 
 	_allRecipients(): Array<RecipientInfo> {
@@ -545,7 +569,7 @@ export class SendMailModel {
 					return recipientInfo
 				}
 			})
-		})).catch(TooManyRequestsError, e => {
+		})).catch(TooManyRequestsError, () => {
 			throw new RecipientNotResolvedError()
 		})
 	}
@@ -555,18 +579,17 @@ export class SendMailModel {
 		if (isUpdateForTypeRef(ContactTypeRef, update)
 			&& (operation === OperationType.UPDATE || operation === OperationType.DELETE)) {
 			let contactId: IdTuple = [neverNull(instanceListId), instanceId]
-			let allBubbleLists = [this._toRecipients.bubbles, this._ccRecipients.bubbles, this._bccRecipients.bubbles]
-			allBubbleLists.forEach(bubbles => {
-				bubbles.forEach(bubble => {
-					if (bubble => bubble.entity.contact && bubble.entity.contact._id
-						&& isSameId(bubble.entity.contact._id, contactId)) {
-						if (operation === OperationType.UPDATE) {
-							this._updateBubble(bubbles, bubble, contactId)
-						} else {
-							this._removeBubble(bubble)
-						}
+
+			this._allRecipients().forEach(recipient => {
+				if (recipient.contact && recipient.contact._id && isSameId(recipient.contact._id, contactId)) {
+					if (operation === OperationType.UPDATE) {
+						// TODO
+						// this._updateBubble(bubbles, bubble, contactId)
+					} else {
+						// TODO
+						// this._removeBubble(bubble)
 					}
-				})
+				}
 			})
 		}
 	}

@@ -9,7 +9,7 @@ import {locator} from "../api/main/MainLocator"
 import type {CalendarEventAttendee} from "../api/entities/tutanota/CalendarEventAttendee"
 import type {CalendarAttendeeStatusEnum} from "../api/common/TutanotaConstants"
 import {assertNotNull, clone} from "../api/common/utils/Utils"
-import {getTimeZone, incrementSequence} from "./CalendarUtils"
+import {incrementSequence} from "./CalendarUtils"
 import {createMailAddress} from "../api/entities/tutanota/MailAddress"
 import type {Recipient} from "../mail/MailEditor"
 
@@ -79,10 +79,11 @@ export function replyToEventInvitation(
 		foundAttendee.status = decision
 		eventClone.sequence = incrementSequence(eventClone.sequence)
 		const address = createMailAddress({address: foundAttendee.address.address, name: foundAttendee.address.name})
-		return distributor.sendResponse(eventClone, address, decision)
-		                  .then(() => loadOrCreateCalendarInfo())
-		                  .then((calendarInfos) => Array.from(calendarInfos.values())[0])
-		                  .then((calendar) => locator.calendarModel().createEvent(eventClone, [], getTimeZone(), calendar.groupRoot))
+		// TODO
+		// return distributor.sendResponse(eventClone, address, decision)
+		//                   .then(() => loadOrCreateCalendarInfo())
+		//                   .then((calendarInfos) => Array.from(calendarInfos.values())[0])
+		//                   .then((calendar) => locator.calendarModel().createEvent(eventClone, [], getTimeZone(), calendar.groupRoot))
 	})
 }
 

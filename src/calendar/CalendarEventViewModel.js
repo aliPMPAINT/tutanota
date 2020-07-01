@@ -1,14 +1,20 @@
 //@flow
 import type {CalendarInfo} from "./CalendarView"
 import type {AlarmIntervalEnum, CalendarAttendeeStatusEnum, EndTypeEnum, RepeatPeriodEnum} from "../api/common/TutanotaConstants"
-import {CalendarAttendeeStatus, EndType, RepeatPeriod, ShareCapability, TimeFormat} from "../api/common/TutanotaConstants"
+import {
+	CalendarAttendeeStatus,
+	EndType,
+	getAttendeeStatus,
+	RepeatPeriod,
+	ShareCapability,
+	TimeFormat
+} from "../api/common/TutanotaConstants"
 import {createCalendarEventAttendee} from "../api/entities/tutanota/CalendarEventAttendee"
 import type {CalendarEvent} from "../api/entities/tutanota/CalendarEvent"
 import {createCalendarEvent} from "../api/entities/tutanota/CalendarEvent"
 import type {AlarmInfo} from "../api/entities/sys/AlarmInfo"
 import {createAlarmInfo} from "../api/entities/sys/AlarmInfo"
 import type {MailboxDetail} from "../mail/MailModel"
-import {MailModel} from "../mail/MailModel"
 import stream from "mithril/stream/stream.js"
 import {getDefaultSenderFromUser, getEnabledMailAddressesWithUser, getSenderNameForUser} from "../mail/MailUtils"
 import {
@@ -36,20 +42,16 @@ import m from "mithril"
 import {DateTime} from "luxon"
 import type {EncryptedMailAddress} from "../api/entities/tutanota/EncryptedMailAddress"
 import {createEncryptedMailAddress} from "../api/entities/tutanota/EncryptedMailAddress"
-import {findAndRemove, firstThrow} from "../api/common/utils/ArrayUtils"
 import {NotFoundError} from "../api/common/error/RestError"
 import type {User} from "../api/entities/sys/User"
 import {incrementDate} from "../api/common/utils/DateUtils"
-import type {CalendarUpdateDistributor, ExternalConfidentialModeEnum} from "./CalendarUpdateDistributor"
-import {ExternalConfidentialMode} from "./CalendarUpdateDistributor"
+import type {CalendarUpdateDistributor} from "./CalendarUpdateDistributor"
 import type {IUserController} from "../api/main/UserController"
 import type {TranslationKeyType} from "../misc/TranslationKey"
-import {createMailAddress} from "../api/entities/tutanota/MailAddress"
 import type {RecipientInfoTypeEnum} from "../api/common/RecipientInfo"
 import {RecipientInfoType} from "../api/common/RecipientInfo"
 import type {Contact} from "../api/entities/tutanota/Contact"
-import type {Recipient} from "../mail/MailEditor"
-import type {ContactModel} from "../contacts/ContactModel"
+import {SendMailModel} from "../mail/SendMailModel"
 
 const TIMESTAMP_ZERO_YEAR = 1970
 
@@ -67,11 +69,12 @@ type EventTypeEnum = $Values<typeof EventType>
 
 export type Guest = {|
 	address: EncryptedMailAddress,
-	contact: ?Contact,
 	type: RecipientInfoTypeEnum,
 	status: CalendarAttendeeStatusEnum,
 	password: ?string,
 |}
+
+type SendMailModelFactory = (MailboxDetail) => SendMailModel
 
 export class CalendarEventViewModel {
 	+summary: Stream<string>;
@@ -95,23 +98,26 @@ export class CalendarEventViewModel {
 	+_zone: string;
 	// We keep alarms read-only so that view can diff just array and not all elements
 	alarms: $ReadOnlyArray<AlarmInfo>;
-	going: CalendarAttendeeStatusEnum;
 	confidential: boolean;
 	_user: User;
 	+_eventType: EventTypeEnum;
 	+_distributor: CalendarUpdateDistributor;
 	+_calendarModel: CalendarModel;
-	+_mailModel: MailModel;
-	+_contactModel: ContactModel;
-	+_mailAddresses: Array<string>
+	+_inviteModel: SendMailModel;
+	+_updateModel: SendMailModel;
+	+_cancelModel: SendMailModel;
+	+_mailAddresses: Array<string>;
+	+_guestStatuses: Map<string, CalendarAttendeeStatusEnum>;
+	+_sendModelFactory: () => SendMailModel;
+	/** Our own attendee, it should not be included in any of the sendMailModels. */
+	_ownAttendee: ?EncryptedMailAddress;
 
 	constructor(
 		userController: IUserController,
 		distributor: CalendarUpdateDistributor,
 		calendarModel: CalendarModel,
 		mailboxDetail: MailboxDetail,
-		mailModel: MailModel,
-		contactModel: ContactModel,
+		sendMailModelFactory: SendMailModelFactory,
 		date: Date,
 		zone: string,
 		calendars: Map<Id, CalendarInfo>,
@@ -119,28 +125,52 @@ export class CalendarEventViewModel {
 	) {
 		this._distributor = distributor
 		this._calendarModel = calendarModel
-		this._mailModel = mailModel
-		this._contactModel = contactModel
+		this._inviteModel = sendMailModelFactory(mailboxDetail)
+		this._updateModel = sendMailModelFactory(mailboxDetail)
+		this._cancelModel = sendMailModelFactory(mailboxDetail)
 		this.summary = stream("")
 		this.calendars = Array.from(calendars.values())
 		this.selectedCalendar = stream(this.calendars[0])
-		// TODO
+		// TODO: get it from the event or from user props
 		this.confidential = true;
+		this._guestStatuses = new Map()
+		this._sendModelFactory = () => sendMailModelFactory(mailboxDetail)
+		this._mailAddresses = getEnabledMailAddressesWithUser(mailboxDetail, userController.userGroupInfo)
 
-		if (existingEvent) {
-			const attendees = existingEvent.attendees.map((attendee) => {
-				this._resolveGuest(attendee.address.address)
+		// TODO: change with own attendee status as well
+		this.attendees = stream.merge([this._inviteModel.recipientsChanged, this._updateModel.recipientsChanged]).map(() => {
+			const guests = this._inviteModel._bccRecipients.concat(this._updateModel._bccRecipients).map((recipientInfo) => {
 				return {
-					address: attendee.address,
-					type: RecipientInfoType.UNKNOWN,
-					contact: null,
-					password: null,
-					status: downcast(attendee.status),
+					address: createEncryptedMailAddress({name: recipientInfo.name, address: recipientInfo.mailAddress}),
+					status: this._guestStatuses.get(recipientInfo.mailAddress) || CalendarAttendeeStatus.NEEDS_ACTION,
+					type: recipientInfo.type,
+					password: recipientInfo.contact && recipientInfo.contact.presharedPassword,
 				}
 			})
-			this.attendees = stream(attendees)
-		} else {
-			this.attendees = stream([])
+
+			if (this._ownAttendee) {
+				guests.unshift({
+					address: this._ownAttendee,
+					status: this._guestStatuses.get(this._ownAttendee.address) || CalendarAttendeeStatus.ACCEPTED,
+					type: RecipientInfoType.INTERNAL,
+					password: null,
+				})
+			}
+			return guests
+		})
+
+		if (existingEvent) {
+			existingEvent.attendees.forEach((attendee) => {
+				if (this._mailAddresses.includes(attendee.address.address)) {
+					this._ownAttendee = attendee.address
+				} else {
+					this._updateModel.addRecipient("bcc", {
+						name: attendee.address.name,
+						address: attendee.address.address,
+					})
+				}
+				this._guestStatuses.set(attendee.address.address, getAttendeeStatus(attendee))
+			})
 		}
 		const existingOrganizer = existingEvent && existingEvent.organizer
 		this.organizer = existingOrganizer || addressToMailAddress(getDefaultSenderFromUser(userController), mailboxDetail, userController)
@@ -151,9 +181,7 @@ export class CalendarEventViewModel {
 		this.existingEvent = existingEvent
 		this._zone = zone
 		this.alarms = []
-		this._mailAddresses = getEnabledMailAddressesWithUser(mailboxDetail, userController.userGroupInfo)
 		const ownAttendee = this.findOwnAttendee()
-		this.going = ownAttendee ? ownAttendee.status : CalendarAttendeeStatus.NEEDS_ACTION
 		this._user = userController.user
 
 		/**
@@ -280,18 +308,13 @@ export class CalendarEventViewModel {
 	}
 
 	addAttendee(mailAddress: string, contact: ?Contact) {
+		// TODO: find attendee differently
 		if (this.attendees().find((a) => a.address.address === mailAddress)) {
 			return
 		}
-		const newAttendees = this.attendees().concat({
-			status: CalendarAttendeeStatus.NEEDS_ACTION,
-			address: createEncryptedMailAddress({address: mailAddress}),
-			type: RecipientInfoType.UNKNOWN,
-			contact,
-			password: contact ? contact.presharedPassword : null,
-		})
-		this.attendees(newAttendees)
-		this._resolveGuest(mailAddress)
+		const recipientInfo = this._inviteModel.addRecipient("bcc", {address: mailAddress, contact, name: null})
+		this._guestStatuses.set(recipientInfo.mailAddress, CalendarAttendeeStatus.NEEDS_ACTION)
+
 		if (this.attendees.length === 1 && this.findOwnAttendee() == null) {
 			this.selectGoing(CalendarAttendeeStatus.ACCEPTED)
 		}
@@ -410,10 +433,23 @@ export class CalendarEventViewModel {
 			&& (!this.existingEvent || !this.existingEvent.isCopy)
 	}
 
-	removeAttendee(address: string) {
-		const current = this.attendees().slice()
-		findAndRemove(current, (a) => a.address.address === address)
-		this.attendees(current)
+	removeAttendee(guest: Guest) {
+		const existingRecipient = this.existingEvent
+			&& this.existingEvent.attendees.find((a) => a.address.address === guest.address.address)
+		for (const model of [this._inviteModel, this._updateModel, this._cancelModel]) {
+			const recipientInfo = model._bccRecipients.find(r => r.mailAddress === guest.address.address)
+			if (recipientInfo) {
+				this._updateModel.removeRecipient("bcc", recipientInfo)
+				this._guestStatuses.delete(recipientInfo.mailAddress)
+			}
+		}
+		if (existingRecipient) {
+			this._cancelModel.addRecipient("bcc", {
+				address: existingRecipient.address.address,
+				name: existingRecipient.address.name,
+				contact: null,
+			})
+		}
 	}
 
 	canModifyOwnAttendance(): boolean {
@@ -472,8 +508,13 @@ export class CalendarEventViewModel {
 	_sendCancellation(event: CalendarEvent): Promise<*> {
 		const updatedEvent = clone(event)
 		updatedEvent.sequence = incrementSequence(updatedEvent.sequence)
-		// return this._distributor.sendCancellation(updatedEvent, getEventCancellationRecipients(event, this._mailAddresses))
-		// TODO
+		const cancelAddresses = event.attendees
+		                             .filter(a => !this._mailAddresses.includes(a.address.address))
+		                             .map(a => a.address)
+		cancelAddresses.forEach((a) => {
+			this._cancelModel.addRecipient("bcc", {name: a.name, address: a.address, contact: null})
+		})
+		this._distributor.sendCancellation(updatedEvent, this._cancelModel)
 		return Promise.resolve()
 	}
 
@@ -593,12 +634,13 @@ export class CalendarEventViewModel {
 			if (existingEvent) {
 				// We are not using this._findAttendee() because we want to search it on the event, before our modifications
 				const ownAttendee = existingEvent.attendees.find(a => this._mailAddresses.includes(a.address.address))
-				if (ownAttendee && this.going !== CalendarAttendeeStatus.NEEDS_ACTION && ownAttendee.status !== this.going) {
-					ownAttendee.status = this.going
-					this._distributor.sendResponse(newEvent, createMailAddress({
-						name: ownAttendee.address.name,
-						address: ownAttendee.address.address,
-					}), this.going)
+				const going = ownAttendee && this._guestStatuses.get(ownAttendee.address.address)
+				if (ownAttendee && going !== CalendarAttendeeStatus.NEEDS_ACTION && ownAttendee.status !== going) {
+					ownAttendee.status = assertNotNull(going)
+					const sendResponseModel = this._sendModelFactory()
+					const organizer = assertNotNull(existingEvent.organizer)
+					sendResponseModel.addRecipient("to", {name: organizer.name, address: organizer.address, contact: null})
+					this._distributor.sendResponse(newEvent, sendResponseModel, assertNotNull(going))
 				}
 			}
 		}
@@ -618,26 +660,21 @@ export class CalendarEventViewModel {
 				askForUpdates: (sendOutUpdate) => {
 					return doCreateEvent()
 						.then(() => sendOutUpdate && existingAttendees.length
-							? this._distributor.sendUpdate(newEvent, this._distributionAddresses(existingAttendees),
-								this._confidentialMode())
+							? this._distributor.sendUpdate(newEvent, this._updateModel)
 							: Promise.resolve())
 						.then(() => sendOutUpdate && newAttendees.length
-							? this._distributor.sendInvite(newEvent, this._distributionAddresses(newAttendees),
-								this._confidentialMode())
+							? this._distributor.sendInvite(newEvent, this._inviteModel)
 							: Promise.resolve())
-						.then(() => {
-							sendOutUpdate && removedAttendees.length
-								? this._distributor.sendCancellation(newEvent, this._distributionAddresses(removedAttendees),
-								this._confidentialMode())
-								: Promise.resolve()
-						})
+						.then(() => sendOutUpdate && removedAttendees.length
+							? this._distributor.sendCancellation(newEvent, this._cancelModel)
+							: Promise.resolve())
 				}
 			})
 		} else {
 			// just create the event
 			return doCreateEvent().then(() => {
 				if (newAttendees.length) {
-					return this._distributor.sendInvite(newEvent, this._distributionAddresses(newAttendees), this._confidentialMode())
+					return this._distributor.sendInvite(newEvent, this._inviteModel)
 				}
 			}).then(() => {
 				return {
@@ -650,20 +687,9 @@ export class CalendarEventViewModel {
 
 	selectGoing(going: CalendarAttendeeStatusEnum) {
 		if (this.canModifyOwnAttendance()) {
-			this.going = going
-			const ownAttendee = this.findOwnAttendee()
+			const ownAttendee = this._ownAttendee
 			if (ownAttendee) {
-				ownAttendee.status = going
-			} else {
-				const newAttendees = this.attendees().slice()
-				newAttendees.unshift({
-					address: createEncryptedMailAddress({address: firstThrow(this._mailAddresses)}),
-					status: going,
-					contact: null,
-					type: RecipientInfoType.INTERNAL,
-					password: null,
-				})
-				this.attendees(newAttendees)
+				this._guestStatuses.set(ownAttendee.address, going)
 			}
 		}
 	}
@@ -673,41 +699,18 @@ export class CalendarEventViewModel {
 	}
 
 	updatePassword(guest: Guest, password: string) {
-		const updatedGuest = this.attendees().find((a) => guest === a)
-		if (updatedGuest) {
-			updatedGuest.password = password
-			this.attendees(this.attendees())
+		const inInite = this._inviteModel._bccRecipients.find((r) => r.mailAddress === guest.address.address)
+		if (inInite) {
+			this._inviteModel.setPassword(inInite, password)
 		}
-	}
-
-	_distributionAddresses(guests: Array<Guest>): Array<Recipient> {
-		return guests.map((a) => {
-			return {name: a.address.name, address: a.address.address, contact: a.contact}
-		})
-	}
-
-	_resolveGuest(address: string) {
-		this._mailModel.getRecipientKeyData(address)
-		    .then((keyData) => {
-			    const newAttendees = this.attendees()
-			    const currentAttendee = newAttendees.find((a) => address === a.address.address)
-			    if (currentAttendee) {
-				    currentAttendee.type = keyData == null ? RecipientInfoType.EXTERNAL : RecipientInfoType.INTERNAL
-				    if (keyData == null) {
-					    this._contactModel.searchForContact(address).then((contact) => {
-						    currentAttendee.contact = contact
-						    if (contact && currentAttendee.password == null) {
-							    currentAttendee.password = contact.presharedPassword
-						    }
-					    })
-				    }
-			    }
-			    this.attendees(newAttendees)
-		    })
-	}
-
-	_confidentialMode(): ExternalConfidentialModeEnum {
-		return this.confidential ? ExternalConfidentialMode.CONFIDENTIAL : ExternalConfidentialMode.UNCONFIDENTIAL
+		const inUpdate = this._updateModel._bccRecipients.find((r) => r.mailAddress === guest.address.address)
+		if (inUpdate) {
+			this._updateModel.setPassword(inUpdate, password)
+		}
+		const inCancel = this._cancelModel._bccRecipients.find((r) => r.mailAddress === guest.address.address)
+		if (inCancel) {
+			this._updateModel.setPassword(inCancel, password)
+		}
 	}
 }
 

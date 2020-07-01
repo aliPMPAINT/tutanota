@@ -20,7 +20,6 @@ import {getEventCancellationRecipients} from "./CalendarInvites"
 import type {CalendarInfo} from "./CalendarView"
 import {ShareCapability} from "../api/common/TutanotaConstants"
 import type {CalendarUpdateDistributor} from "./CalendarUpdateDistributor"
-import {ExternalConfidentialMode} from "./CalendarUpdateDistributor"
 import type {MailboxDetail} from "../mail/MailModel"
 
 export class CalendarEventPopup implements ModalComponent {
@@ -168,8 +167,9 @@ function sendCancellationIfNeeded(event) {
 		]).then(([distributor, mailboxDetail]: [CalendarUpdateDistributor, MailboxDetail]) => {
 			const mailAddreses = getEnabledMailAddressesWithUser(mailboxDetail, logins.getUserController().userGroupInfo)
 			const recipients = getEventCancellationRecipients(event, mailAddreses)
-			// TODO: how to pick confidentiality?
-			return distributor.sendCancellation(event, recipients, ExternalConfidentialMode.UNCONFIDENTIAL)
+			// TODO
+			return Promise.resolve()
+			// return distributor.sendCancellation(event, recipients, ExternalConfidentialMode.UNCONFIDENTIAL)
 		})
 	} else {
 		return Promise.resolve()

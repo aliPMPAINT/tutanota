@@ -1,21 +1,16 @@
 //@flow
-import type {Recipient} from "../mail/MailEditor"
-import {MailEditor} from "../mail/MailEditor"
 import {lang} from "../misc/LanguageViewModel"
 import {makeInvitationCalendarFile} from "./CalendarImporter"
 import type {CalendarAttendeeStatusEnum, CalendarMethodEnum} from "../api/common/TutanotaConstants"
-import {CalendarMethod, ConversationType, getAttendeeStatus} from "../api/common/TutanotaConstants"
+import {CalendarMethod, getAttendeeStatus} from "../api/common/TutanotaConstants"
 import {calendarAttendeeStatusSymbol, formatEventDuration, getTimeZone} from "./CalendarUtils"
 import type {CalendarEvent} from "../api/entities/tutanota/CalendarEvent"
-import {MailModel} from "../mail/MailModel"
 import type {MailAddress} from "../api/entities/tutanota/MailAddress"
-import type {File as TutanotaFile} from "../api/entities/tutanota/File"
 import {stringToUtf8Uint8Array, uint8ArrayToBase64} from "../api/common/utils/Encoding"
 import {theme} from "../gui/theme"
 import {assertNotNull} from "../api/common/utils/Utils"
 import type {EncryptedMailAddress} from "../api/entities/tutanota/EncryptedMailAddress"
-import {worker} from "../api/main/WorkerClient"
-import type {RecipientInfo} from "../api/common/RecipientInfo"
+import {SendMailModel} from "../mail/SendMailModel"
 
 export const ExternalConfidentialMode = Object.freeze({
 	CONFIDENTIAL: 0,
@@ -24,107 +19,75 @@ export const ExternalConfidentialMode = Object.freeze({
 export type ExternalConfidentialModeEnum = $Values<typeof ExternalConfidentialMode>
 
 export interface CalendarUpdateDistributor {
-	sendInvite(existingEvent: CalendarEvent, recipients: $ReadOnlyArray<Recipient>, confidentialMode: ExternalConfidentialModeEnum
-	): Promise<void>;
+	sendInvite(existingEvent: CalendarEvent, sendMailModel: SendMailModel): Promise<void>;
 
-	sendUpdate(event: CalendarEvent, recipients: $ReadOnlyArray<Recipient>, confidentialMode: ExternalConfidentialModeEnum): Promise<void>;
+	sendUpdate(event: CalendarEvent, sendMailModel: SendMailModel): Promise<void>;
 
-	sendCancellation(event: CalendarEvent, recipients: $ReadOnlyArray<Recipient>, confidentialMode: ExternalConfidentialModeEnum
-	): Promise<void>;
+	sendCancellation(event: CalendarEvent, sendMailModel: SendMailModel): Promise<void>;
 
-	sendResponse(event: CalendarEvent, sender: MailAddress, status: CalendarAttendeeStatusEnum): Promise<void>;
+	sendResponse(event: CalendarEvent, sendMailModel: SendMailModel, status: CalendarAttendeeStatusEnum): Promise<void>;
 }
 
 export class CalendarMailDistributor implements CalendarUpdateDistributor {
-	_mailModel: MailModel;
-
-	constructor(mailModel: MailModel) {
-		this._mailModel = mailModel
-	}
-
-	sendInvite(existingEvent: CalendarEvent, recipients: $ReadOnlyArray<Recipient>, confidentialMode: ExternalConfidentialModeEnum
-	): Promise<void> {
-
-		return this._mailModel.getUserMailboxDetails().then((mailboxDetails) => {
-			const organizer = assertOrganizer(existingEvent)
-			const subject = lang.get("eventInviteMail_msg", {"{event}": existingEvent.summary})
-			const editor = new MailEditor(mailboxDetails)
-			editor.initWithTemplate(
-				{bcc: recipients},
-				subject,
-				makeInviteEmailBody(existingEvent, subject),
-				/*confidential*/confidentialMode === ExternalConfidentialMode.CONFIDENTIAL,
-				organizer.address,
-			)
-			const inviteFile = makeInvitationCalendarFile(existingEvent, CalendarMethod.REQUEST, new Date(), getTimeZone())
-			sendCalendarFile(editor, inviteFile, CalendarMethod.REQUEST)
+	sendInvite(event: CalendarEvent, sendMailModel: SendMailModel): Promise<void> {
+		const message = lang.get("eventInviteMail_msg", {"{event}": event.summary})
+		return sendCalendarFile({
+			sendMailModel,
+			method: CalendarMethod.REQUEST,
+			subject: message,
+			body: makeInviteEmailBody(event, message),
+			event,
 		})
 	}
 
-	sendUpdate(event: CalendarEvent, recipients: $ReadOnlyArray<Recipient>, confidentialMode: ExternalConfidentialModeEnum): Promise<void> {
-		return this._mailModel.getUserMailboxDetails().then((mailboxDetails) => {
-			const organizer = assertOrganizer(event)
-			const editor = new MailEditor(mailboxDetails)
-			editor.initWithTemplate(
-				{bcc: recipients},
-				lang.get("eventUpdated_msg", {"{event}": event.summary}),
-				makeInviteEmailBody(event, ""),
-				/*confidential*/confidentialMode === ExternalConfidentialMode.CONFIDENTIAL,
-				organizer.address,
-			)
-
-			const file = makeInvitationCalendarFile(event, CalendarMethod.REQUEST, new Date(), getTimeZone())
-			sendCalendarFile(editor, file, CalendarMethod.REQUEST)
+	sendUpdate(event: CalendarEvent, sendMailModel: SendMailModel): Promise<void> {
+		return sendCalendarFile({
+			sendMailModel,
+			method: CalendarMethod.REQUEST,
+			subject: lang.get("eventUpdated_msg", {"{event}": event.summary}),
+			body: makeInviteEmailBody(event, ""),
+			event,
 		})
 	}
 
-	sendCancellation(event: CalendarEvent, recipients: $ReadOnlyArray<Recipient>,
-	                 confidentialMode: ExternalConfidentialModeEnum
-	): Promise<void> {
-		return this._mailModel.getUserMailboxDetails().then((mailboxDetails) => {
-			const organizer = assertOrganizer(event)
-			const editor = new MailEditor(mailboxDetails)
-			const message = lang.get("eventCancelled_msg", {"{event}": event.summary})
-			editor.initWithTemplate(
-				{bcc: recipients},
-				message,
-				makeInviteEmailBody(event, message),
-				confidentialMode === ExternalConfidentialMode.CONFIDENTIAL,
-				organizer.address
-			)
-
-			const file = makeInvitationCalendarFile(event, CalendarMethod.CANCEL, new Date(), getTimeZone())
-			sendCalendarFile(editor, file, CalendarMethod.CANCEL)
+	sendCancellation(event: CalendarEvent, sendMailModel: SendMailModel): Promise<void> {
+		const message = lang.get("eventCancelled_msg", {"{event}": event.summary})
+		return sendCalendarFile({
+			sendMailModel,
+			method: CalendarMethod.CANCEL,
+			subject: message,
+			body: makeInviteEmailBody(event, message),
+			event,
 		})
 	}
 
-	sendResponse(event: CalendarEvent, sender: MailAddress, status: CalendarAttendeeStatusEnum): Promise<void> {
-		const organizer = assertOrganizer(event)
-		return this._mailModel.getUserMailboxDetails().then((mailboxDetails) => {
-			const editor = new MailEditor(mailboxDetails)
-			const message = lang.get("repliedToEventInvite_msg", {"{sender}": sender.name || sender.address, "{event}": event.summary})
-			editor.initWithTemplate(
-				{to: [{name: organizer.name || "", address: organizer.address}]},
-				message,
-				makeResponseEmailBody(event, message, sender, status),
-				// TODO
-				false,
-				sender.address,
-			)
-			const responseFile = makeInvitationCalendarFile(event, CalendarMethod.REPLY, new Date(), getTimeZone())
-			sendCalendarFile(editor, responseFile, CalendarMethod.REPLY)
+	sendResponse(event: CalendarEvent, sendMailModel: SendMailModel, status: CalendarAttendeeStatusEnum): Promise<void> {
+		const message = lang.get("repliedToEventInvite_msg", {"{sender}": sendMailModel._senderAddress, "{event}": event.summary})
+		return sendCalendarFile({
+			sendMailModel,
+			method: CalendarMethod.REPLY,
+			subject: message,
+			body: makeInviteEmailBody(event, message),
+			event,
 		})
 	}
 }
 
-function sendCalendarFile(editor: MailEditor, responseFile: DataFile, method: CalendarMethodEnum) {
-	editor.attachFiles([responseFile])
-	editor.hooks = {
-		beforeSent(editor: MailEditor, attachments: Array<TutanotaFile>) {
-			return {calendarFileMethods: [[attachments[0]._id, method]]}
-		}
+function sendCalendarFile({sendMailModel, method, subject, event, body}: {
+	sendMailModel: SendMailModel,
+	method: CalendarMethodEnum,
+	subject: string,
+	event: CalendarEvent,
+	body: string,
+}): Promise<void> {
+	const organizer = assertOrganizer(event)
+	const inviteFile = makeInvitationCalendarFile(event, method, new Date(), getTimeZone())
+	sendMailModel.selectSender(organizer.address)
+	if (sendMailModel.attachFiles([inviteFile]).length) {
+		throw new Error("Invite file is too big?")
 	}
-	editor.send()
+	sendMailModel.setSubject(subject)
+	return sendMailModel.send(body)
 }
 
 function organizerLine(event: CalendarEvent) {

@@ -200,7 +200,7 @@ export function showCalendarEventDialog(date: Date, calendars: Map<Id, CalendarI
 							? m(".mr-s-flex-grow", m(ButtonN, {
 								label: "remove_action",
 								type: ButtonType.Secondary,
-								click: () => viewModel.removeAttendee(guest.address.address)
+								click: () => viewModel.removeAttendee(guest)
 							}))
 							: null,
 						renderStatusIcon(viewModel, guest, ownAttendee)

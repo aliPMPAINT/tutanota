@@ -220,7 +220,12 @@ export class WorkerClient implements EntityRestInterface {
 		return this._postRequest(new Request('createMailFolder', arguments))
 	}
 
-	createMailDraft(subject: string, body: string, senderAddress: string, senderName: string, toRecipients: $ReadOnlyArray<RecipientInfo>, ccRecipients: $ReadOnlyArray<RecipientInfo>, bccRecipients: $ReadOnlyArray<RecipientInfo>, conversationType: ConversationTypeEnum, previousMessageId: ?Id, attachments: ?Array<TutanotaFile | DataFile | FileReference>, confidential: boolean, replyTos: $ReadOnlyArray<RecipientInfo>): Promise<Mail> {
+	createMailDraft(subject: string, body: string, senderAddress: string, senderName: string, toRecipients: $ReadOnlyArray<RecipientInfo>,
+	                ccRecipients: $ReadOnlyArray<RecipientInfo>, bccRecipients: $ReadOnlyArray<RecipientInfo>,
+	                conversationType: ConversationTypeEnum, previousMessageId: ?Id,
+	                attachments: ?$ReadOnlyArray<TutanotaFile | DataFile | FileReference>,
+	                confidential: boolean, replyTos: $ReadOnlyArray<RecipientInfo>
+	): Promise<Mail> {
 		return this._postRequest(new Request('createMailDraft', arguments))
 	}
 
