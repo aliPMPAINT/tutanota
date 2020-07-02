@@ -1117,3 +1117,4 @@ export type TranslationKeyType =
 	| "addGuest_label"
 	| "eventYourDecision_msg"
 	| "you_label"
+	| "sendUpdates_msg"

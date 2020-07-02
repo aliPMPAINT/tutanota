@@ -191,7 +191,6 @@ export class CalendarEventViewModel {
 		this.existingEvent = existingEvent
 		this._zone = zone
 		this.alarms = []
-		const ownAttendee = this.findOwnAttendee()
 		this._user = userController.user
 
 		/**
@@ -318,7 +317,6 @@ export class CalendarEventViewModel {
 	}
 
 	addAttendee(mailAddress: string, contact: ?Contact) {
-		// TODO: find attendee differently
 		if (this.attendees().find((a) => a.address.address === mailAddress)) {
 			return
 		}
@@ -614,7 +612,6 @@ export class CalendarEventViewModel {
 		// We need to compute diff of attendees to know if we need to send out updates
 		let newAttendees: Array<Guest> = []
 		let existingAttendees: Array<Guest> = []
-		let removedAttendees: Array<Guest>
 		const {existingEvent} = this
 
 		newEvent.organizer = this.organizer
@@ -631,19 +628,10 @@ export class CalendarEventViewModel {
 						newAttendees.push(guest)
 					}
 				})
-				// TODO
-				removedAttendees = []
-				// removedAttendees = existingEvent.attendees
-				//                                 .filter((ea) => !this._mailAddresses.includes(ea.address.address)
-				// 	                                && !newEvent.attendees.find((a) => ea.address.address === a.address.address)
-				//                                 )
-				// 	.map((a) => )
 			} else {
 				newAttendees = this.attendees().filter(a => !this._mailAddresses.includes(a.address.address))
-				removedAttendees = []
 			}
 		} else {
-			removedAttendees = []
 			if (existingEvent) {
 				// We are not using this._findAttendee() because we want to search it on the event, before our modifications
 				const ownAttendee = existingEvent.attendees.find(a => this._mailAddresses.includes(a.address.address))
@@ -666,7 +654,7 @@ export class CalendarEventViewModel {
 			}
 		}
 
-		if (this._viewingOwnEvent() && existingAttendees.length || removedAttendees.length) {
+		if (this._viewingOwnEvent() && existingAttendees.length || this._cancelModel._bccRecipients.length) {
 			// ask for update
 			return Promise.resolve({
 				status: "ok",
@@ -678,7 +666,7 @@ export class CalendarEventViewModel {
 						.then(() => sendOutUpdate && newAttendees.length
 							? this._distributor.sendInvite(newEvent, this._inviteModel)
 							: Promise.resolve())
-						.then(() => sendOutUpdate && removedAttendees.length
+						.then(() => sendOutUpdate && this._cancelModel._bccRecipients.length
 							? this._distributor.sendCancellation(newEvent, this._cancelModel)
 							: Promise.resolve())
 				}

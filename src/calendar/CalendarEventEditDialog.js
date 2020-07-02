@@ -125,11 +125,27 @@ export function showCalendarEventDialog(date: Date, calendars: Map<Id, CalendarI
 				if (result.status === "ok") {
 					const {askForUpdates} = result
 					if (askForUpdates) {
-						// TODO: translate
-						// TODO: it should probably be more clear with options
-						Dialog.confirm(() => "Send out updates?")
-						      .then(askForUpdates)
-						      .then(() => dialog.close())
+						const alertDialog = Dialog.alert("sendUpdates_msg", [
+							{
+								label: "cancel_action",
+								click: () => alertDialog.close(),
+								type: ButtonType.Secondary
+							}, {
+								label: "no_label",
+								click: () => {
+									askForUpdates(false).then(() => dialog.close())
+									alertDialog.close()
+								},
+								type: ButtonType.Secondary
+							}, {
+								label: "yes_label",
+								click: () => {
+									askForUpdates(true).then(() => dialog.close())
+									alertDialog.close()
+								},
+								type: ButtonType.Primary,
+							}
+						], (positive) => positive && askForUpdates(true).then(() => dialog.close()))
 					} else {
 						dialog.close()
 					}

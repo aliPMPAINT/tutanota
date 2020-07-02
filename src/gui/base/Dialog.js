@@ -21,12 +21,12 @@ import type {DialogHeaderBarAttrs} from "./DialogHeaderBar"
 import {DialogHeaderBar} from "./DialogHeaderBar"
 import type {TextFieldAttrs} from "./TextFieldN"
 import {TextFieldN, Type} from "./TextFieldN"
+import type {SelectorItemList} from "./DropDownSelectorN"
 import {DropDownSelectorN} from "./DropDownSelectorN"
 import {showProgressDialog} from "./ProgressDialog"
 import {Keys} from "../../api/common/TutanotaConstants"
 import {dialogAttrs} from "../../api/common/utils/AriaUtils"
 import {styles} from "../styles"
-import type {SelectorItemList} from "./DropDownSelectorN"
 
 assertMainOrNode()
 
@@ -370,6 +370,38 @@ export class Dialog {
 				help: neverNull(confirmId) //ok?
 			}).show()
 		})
+	}
+
+	static alert(messageIdOrMessageFunction: TranslationKey | lazy<string>, buttons: $ReadOnlyArray<ButtonAttrs>,
+	             onclose?: (positive: boolean) => mixed
+	): Dialog {
+		let dialog: Dialog
+		const closeAction = (positive) => {
+			dialog.close()
+			setTimeout(() => onclose && onclose(positive), DefaultAnimationTime)
+		}
+
+		dialog = new Dialog(DialogType.Alert, {
+			view: () => [
+				m("#dialog-message.dialog-contentButtonsBottom.text-break.text-prewrap.selectable",
+					lang.getMaybeLazy(messageIdOrMessageFunction)),
+				m(".flex-center.dialog-buttons", buttons.map(a => m(ButtonN, a)))
+			]
+		}).setCloseHandler(() => closeAction(false))
+		  .addShortcut({
+			  key: Keys.ESC,
+			  shift: false,
+			  exec: () => closeAction(false),
+			  help: "cancel_action"
+		  })
+		  .addShortcut({
+			  key: Keys.RETURN,
+			  shift: false,
+			  exec: () => closeAction(true),
+			  help: "ok_action",
+		  })
+		  .show()
+		return dialog
 	}
 
 	// used in admin client
