@@ -2,6 +2,8 @@
 
 import {asyncImport} from "../../api/common/utils/Utils"
 import type {SubscriptionTypeEnum} from "../../subscription/SubscriptionUtils"
+import {lang} from "../../misc/LanguageViewModel"
+
 
 export function showUpgradeDialog() {
 	asyncImport(typeof module !== "undefined" ?
@@ -16,8 +18,8 @@ export function showUpgradeDialog() {
 
 export function writeSupportMail() {
 	asyncImport(typeof module !== "undefined" ?
-		module.id : __moduleName, `${env.rootPathPrefix}src/mail/MailEditor.js`)
-		.then(mailEditorModule => mailEditorModule.MailEditor.writeSupportMail())
+		module.id : __moduleName, `${env.rootPathPrefix}src/support/SupportDialog.js`)
+		.then(supportModule => supportModule.showSupportDialog())
 }
 
 export function writeInviteMail() {

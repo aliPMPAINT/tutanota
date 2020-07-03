@@ -1121,6 +1121,12 @@ module.exports = {
 		"waitingForU2f_msg": "Waiting for security key…",
 		"invoiceNotPaid_msg": "Sorry, you are currently not allowed to send emails because at least one of your invoices is not paid. Please update your payment data in 'Settings' -> 'Payment data' and trigger the payment there afterwards.",
 		"businessUseUpgradeNeeded_msg": "Sorry, you are currently not allowed to send or receive emails (except to the Tutanota sales support at sales@tutao.de) because you have a business account which is only allowed with paid subscriptions. Please upgrade to a paid subscription now.",
-		"upgradeNeeded_msg": "Sorry, you are currently not allowed to send or receive emails (except to the Tutanota sales support at sales@tutao.de) because you first need to order a paid subscription."
+		"upgradeNeeded_msg": "Sorry, you are currently not allowed to send or receive emails (except to the Tutanota sales support at sales@tutao.de) because you first need to order a paid subscription.",
+		"pleaseSelect_msg": "Please select one of the following options:",
+		"howCanWeHelp_title": "How can we help you?",
+		"question_action": "I have a question or need help",
+		"bugOrFeature_action": "I have found a bug or a feature is missing",
+		"describeProblem_msg": "Please enter your question",
+		"describeBug_msg": "Please describe the bug or feature"
 	}
 }
