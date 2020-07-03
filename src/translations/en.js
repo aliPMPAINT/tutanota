@@ -1130,6 +1130,7 @@ module.exports = {
 		"addGuest_label": "Add a guest",
 		"eventYourDecision_msg": "You replied to this invite. Your decision: {decision}",
 		"you_label": "You",
-		"sendUpdates_msg": "Send out updates?"
+		"sendUpdates_msg": "Send out updates?",
+		"updateSent_msg": "Update sent!",
 	}
 }

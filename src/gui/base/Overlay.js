@@ -4,6 +4,7 @@ import type {DomMutation} from "../animation/Animations"
 import {animations, hexToRgb} from "../animation/Animations"
 import {theme} from "../theme"
 import {requiresStatusBarHack} from "../main-styles"
+import {ease} from "../animation/Easing"
 
 export type PositionRect = {
 	top?: ?string,
@@ -42,7 +43,12 @@ export function displayOverlay(position: PositionRect, component: Component, cre
 	overlays.push(pair)
 	return () => {
 		const dom = pair[1];
-		(newAttrs.closeAnimation && dom ? animations.add(dom, newAttrs.closeAnimation(dom)) : Promise.resolve())
+		(newAttrs.closeAnimation && dom
+			? animations.add(dom, newAttrs.closeAnimation(dom), {
+				duration: 100,
+				easing: ease.in
+			})
+			: Promise.resolve())
 			.then(() => {
 				overlays.splice(overlays.indexOf(pair), 1)
 				m.redraw()

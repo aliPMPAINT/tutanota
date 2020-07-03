@@ -11,6 +11,8 @@ import {theme} from "../gui/theme"
 import {assertNotNull} from "../api/common/utils/Utils"
 import type {EncryptedMailAddress} from "../api/entities/tutanota/EncryptedMailAddress"
 import {SendMailModel} from "../mail/SendMailModel"
+import {show} from "../gui/base/NotificationOverlay"
+import m from "mithril"
 
 export const ExternalConfidentialMode = Object.freeze({
 	CONFIDENTIAL: 0,
@@ -47,6 +49,9 @@ export class CalendarMailDistributor implements CalendarUpdateDistributor {
 			subject: lang.get("eventUpdated_msg", {"{event}": event.summary}),
 			body: makeInviteEmailBody(event, ""),
 			event,
+		}).then(() => {
+			const closeSent = show({view: () => m("", lang.get("updateSent_msg"))}, {}, [])
+			setTimeout(closeSent, 3000)
 		})
 	}
 

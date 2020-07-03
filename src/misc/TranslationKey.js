@@ -1118,3 +1118,4 @@ export type TranslationKeyType =
 	| "eventYourDecision_msg"
 	| "you_label"
 	| "sendUpdates_msg"
+	| "updateSent_msg"

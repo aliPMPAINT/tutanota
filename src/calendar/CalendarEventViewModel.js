@@ -660,15 +660,18 @@ export class CalendarEventViewModel {
 				status: "ok",
 				askForUpdates: (sendOutUpdate) => {
 					return doCreateEvent()
-						.then(() => sendOutUpdate && existingAttendees.length
-							? this._distributor.sendUpdate(newEvent, this._updateModel)
-							: Promise.resolve())
 						.then(() => sendOutUpdate && newAttendees.length
 							? this._distributor.sendInvite(newEvent, this._inviteModel)
 							: Promise.resolve())
 						.then(() => sendOutUpdate && this._cancelModel._bccRecipients.length
 							? this._distributor.sendCancellation(newEvent, this._cancelModel)
 							: Promise.resolve())
+						.then(() => {
+							// We do not wait for update to finish, it's done in background
+							if (sendOutUpdate && existingAttendees.length) {
+								Promise.delay(200).then(() => this._distributor.sendUpdate(newEvent, this._updateModel))
+							}
+						})
 				}
 			})
 		} else {

@@ -7,13 +7,13 @@ import {displayOverlay} from "./Overlay"
 import {assertMainOrNodeBoot} from "../../api/Env"
 import type {ButtonAttrs} from "./ButtonN"
 import {ButtonN, ButtonType} from "./ButtonN"
+import {noOp} from "../../api/common/utils/Utils"
 
 assertMainOrNodeBoot()
 
 type NotificationOverlayAttrs = {|
 	message: Component,
 	buttons: Array<ButtonAttrs>,
-	closeFunction: () => void
 |}
 
 
@@ -34,24 +34,33 @@ class NotificationOverlay implements MComponent<NotificationOverlayAttrs> {
 /**
  * @param buttons The postpone button is automatically added and does not have to be passed from outside
  */
-export function show(message: Component, closeButtonAttrs: $Shape<ButtonAttrs>, buttons: Array<ButtonAttrs>) {
-	notificationQueue.push({message, buttons, closeButtonAttrs})
-	if (notificationQueue.length > 1) {
-		// another notification is already visible. Next notification will be shown when closing current notification
-		return
+export function show(message: Component, closeButtonAttrs: $Shape<ButtonAttrs>, buttons: Array<ButtonAttrs>): () => mixed {
+	const queueItem = {
+		message, buttons, closeButtonAttrs, onRemove: () => {
+			const index = notificationQueue.indexOf(queueItem)
+			if (index !== -1) {
+				notificationQueue.splice(index, 1)
+			}
+		}
 	}
-	showNextNotification()
+	notificationQueue.push(queueItem)
+	if (notificationQueue.length <= 1) {
+		showNextNotification()
+	}
+	// Must capture quqeueItem! onRemove will be replaced
+	return () => queueItem.onRemove()
 }
 
 function showNextNotification() {
-	const {message, buttons, closeButtonAttrs} = notificationQueue[0]
+	const queueItem = notificationQueue[0]
+	const {message, buttons, closeButtonAttrs} = queueItem
 
 	currentAnimationTimeout = null
 	const width = window.innerWidth
 	const margin = (width - Math.min(400, width)) / 2
 	const allButtons = buttons.slice()
 	const closeFunction = displayOverlay({top: px(0), left: px(margin), right: px(margin)}, {
-			view: () => m(NotificationOverlay, {message, closeFunction, buttons: allButtons})
+			view: () => m(NotificationOverlay, {message, buttons: allButtons})
 		},
 		(dom) => transform(transform.type.translateY, -dom.offsetHeight, 0),
 		(dom) => transform(transform.type.translateY, 0, -dom.offsetHeight)
@@ -59,6 +68,7 @@ function showNextNotification() {
 
 
 	const closeAndOpenNext = () => {
+		queueItem.onRemove = noOp
 		if (currentAnimationTimeout !== null) {
 			return
 		}
@@ -84,11 +94,15 @@ function showNextNotification() {
 		click: closeAndOpenNext,
 		type: ButtonType.Secondary
 	}, closeButtonAttrs)
+	let didClose = false
+
 	closeFinalAttrs.click = (e, dom) => {
 		closeButtonAttrs.click && closeButtonAttrs.click(e, dom)
+		didClose = true
 		closeAndOpenNext()
 	}
+	queueItem.onRemove = closeAndOpenNext
 
 	allButtons.unshift(closeFinalAttrs)
-	m.redraw();
+	m.redraw()
 }
