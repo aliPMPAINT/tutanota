@@ -20,7 +20,6 @@ import {
 import {animations, height, opacity} from "../gui/animation/Animations"
 import {load, setup, update} from "../api/main/Entity"
 import {worker} from "../api/main/WorkerClient"
-import type {Suggestion} from "../gui/base/BubbleTextField"
 import {Bubble, BubbleTextField} from "../gui/base/BubbleTextField"
 import {Editor} from "../gui/base/Editor"
 import type {RecipientInfo} from "../api/common/RecipientInfo"
@@ -53,7 +52,8 @@ import {
 	parseMailtoUrl,
 	replaceCidsWithInlineImages,
 	replaceInlineImagesWithCids,
-	resolveRecipientInfo
+	resolveRecipientInfo,
+	resolveRecipientInfoContact
 } from "./MailUtils"
 import {fileController} from "../file/FileController"
 import {contains, findAllAndRemove, remove, replace} from "../api/common/utils/ArrayUtils"
@@ -100,8 +100,6 @@ import {CustomerPropertiesTypeRef} from "../api/entities/sys/CustomerProperties"
 import type {InlineImages} from "./MailViewer"
 import {getTimeZone} from "../calendar/CalendarUtils"
 import {MailAddressBubbleHandler} from "../misc/MailAddressBubbleHandler"
-import {px, size} from "../gui/size"
-import {isMailAddress} from "../misc/FormatValidator"
 import {createApprovalMail} from "../api/entities/monitor/ApprovalMail"
 import {newMouseEvent} from "../gui/HtmlUtils"
 import type {EncryptedMailAddress} from "../api/entities/tutanota/EncryptedMailAddress"
@@ -187,7 +185,7 @@ export class MailEditor {
 			.sort().map(mailAddress => ({
 				name: mailAddress,
 				value: mailAddress
-			})), stream(getDefaultSender(this._mailboxDetails)), 250)
+			})), stream(getDefaultSender(logins, this._mailboxDetails)), 250)
 
 		let sortedLanguages = languages.slice().sort((a, b) => lang.get(a.textId).localeCompare(lang.get(b.textId)))
 		this._selectedNotificationLanguage = stream(getAvailableLanguageCode(props.notificationMailLanguage || lang.code))
@@ -627,7 +625,7 @@ export class MailEditor {
 		                              .map(r => this.createBubble(r.name, r.address, r.contact))
 		this.bccRecipients.bubbles = bcc.filter(r => isMailAddress(r.address, false))
 		                                .map(r => this.createBubble(r.name, r.address, r.contact))
-		this._replyTos = replyTos.map(ema => createRecipientInfo(ema.address, ema.name, null, true))
+		this._replyTos = replyTos.map(ema => createRecipientInfo(ema.address, ema.name, null))
 		this._mailChanged = false
 		return promise
 	}
@@ -1033,7 +1031,7 @@ export class MailEditor {
 	 */
 	_waitForResolvedRecipients(): Promise<RecipientInfo[]> {
 		return Promise.all(this._allRecipients().map(recipientInfo => {
-			return resolveRecipientInfo(recipientInfo).then(recipientInfo => {
+			return resolveRecipientInfo(locator.mailModel, recipientInfo).then(recipientInfo => {
 				if (recipientInfo.resolveContactPromise) {
 					return recipientInfo.resolveContactPromise.return(recipientInfo)
 				} else {
@@ -1050,7 +1048,9 @@ export class MailEditor {
 	 */
 	createBubble(name: ?string, mailAddress: string, contact: ?Contact): Bubble<RecipientInfo> {
 		this._mailChanged = true
-		let recipientInfo = createRecipientInfo(mailAddress, name, contact, false)
+		let recipientInfo = createRecipientInfo(mailAddress, name, contact)
+		logins.isInternalUserLoggedIn() && locator.contactModel().then((contactModel) =>
+			resolveRecipientInfoContact(recipientInfo, contactModel, logins.getUserController().user))
 		let bubbleWrapper = {}
 		bubbleWrapper.buttonAttrs = attachDropdown({
 			label: () => getDisplayText(recipientInfo.name, mailAddress, false),
@@ -1066,8 +1066,7 @@ export class MailEditor {
 				return Promise.resolve(this._createBubbleContextButtons(recipientInfo.name, mailAddress, contact, () => bubbleWrapper.bubble))
 			}
 		}, undefined, 250)
-
-		resolveRecipientInfo(recipientInfo)
+		resolveRecipientInfo(locator.mailModel, recipientInfo)
 			.then(() => m.redraw())
 			.catch(ConnectionError, e => {
 				// we are offline but we want to show the error dialog only when we click on send.
@@ -1095,7 +1094,7 @@ export class MailEditor {
 						type: ButtonType.Secondary,
 						click: () => {
 							LazyContactListId.getAsync().then(contactListId => {
-								new ContactEditor(createNewContact(mailAddress, name), contactListId, contactElementId => {
+								new ContactEditor(createNewContact(logins.getUserController().user, mailAddress, name), contactListId, contactElementId => {
 									let bubbles = [
 										this.toRecipients.bubbles, this.ccRecipients.bubbles, this.bccRecipients.bubbles
 									].find(b => contains(b, bubbleResolver()))

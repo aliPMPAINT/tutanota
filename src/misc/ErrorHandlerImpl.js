@@ -296,7 +296,7 @@ export function clientInfoString(timestamp: Date): {message: string, client: str
 
 
 export function sendFeedbackMail(content: FeedbackContent): Promise<void> {
-	const recipient = createRecipientInfo("support@tutao.de", "", null, true)
+	const recipient = createRecipientInfo("support@tutao.de", "", null)
 	return worker.createMailDraft(
 		content.subject,
 		content.message.split("\n").join("<br>"),

@@ -58,14 +58,15 @@ export const locator: MainLocatorType = ({
 				this.calendarUpdateDistributor(),
 				(asyncImport(importBase, `${env.rootPathPrefix}src/calendar/CalendarEventViewModel.js`):
 					Promise<{CalendarEventViewModel: Class<CalendarEventViewModel>}>),
-				(asyncImport(importBase, `${env.rootPathPrefix}src/mail/SendMailModel.js`): Promise<{SendMailModel: Class<SendMailModel>}>)
-			]).then(([distributor, {CalendarEventViewModel}, {SendMailModel}]) =>
+				(asyncImport(importBase, `${env.rootPathPrefix}src/mail/SendMailModel.js`): Promise<{SendMailModel: Class<SendMailModel>}>),
+				contactModel.getAsync(),
+			]).then(([distributor, {CalendarEventViewModel}, {SendMailModel}, contactModel]) =>
 				new CalendarEventViewModel(
 					logins.getUserController(),
 					distributor,
 					this.calendarModel(),
 					mailboxDetail,
-					(mailboxDetail) => new SendMailModel(mailboxDetail),
+					(mailboxDetail) => new SendMailModel(logins, this.mailModel, contactModel, this.eventController, mailboxDetail),
 					date,
 					getTimeZone(),
 					calendars,

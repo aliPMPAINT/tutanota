@@ -18,12 +18,13 @@ import {
 import {getEnabledMailAddressesForGroupInfo, getGroupInfoDisplayName, neverNull} from "../api/common/utils/Utils"
 import {assertMainOrNode, isApp, isDesktop} from "../api/Env"
 import {contains} from "../api/common/utils/ArrayUtils"
+import type {LoginController} from "../api/main/LoginController"
 import {logins} from "../api/main/LoginController"
 import {htmlSanitizer} from "../misc/HtmlSanitizer"
 import {lang} from "../misc/LanguageViewModel"
 import {Icons} from "../gui/base/icons/Icons"
-import type {MailboxDetail} from "./MailModel"
-import {getContactDisplayName, searchForContactByMailAddress} from "../contacts/ContactUtils"
+import type {MailboxDetail, MailModel} from "./MailModel"
+import {getContactDisplayName} from "../contacts/ContactUtils"
 import {Dialog} from "../gui/base/Dialog"
 import type {AllIconsEnum, lazyIcon} from "../gui/base/Icon"
 import {endsWith} from "../api/common/utils/StringUtils"
@@ -35,6 +36,8 @@ import type {IUserController} from "../api/main/UserController"
 import type {InlineImages} from "./MailViewer"
 import type {Mail} from "../api/entities/tutanota/Mail"
 import type {Recipient, RecipientList} from "./MailEditor"
+import type {ContactModel} from "../contacts/ContactModel"
+import type {User} from "../api/entities/sys/User"
 
 assertMainOrNode()
 
@@ -43,41 +46,41 @@ assertMainOrNode()
  * @param mailAddress
  * @param name Null if the name shall be taken from the contact found with the email address.
  * @param contact
- * @param doNotResolveContact
  * @returns {{_type: string, type: string, mailAddress: string, name: ?string, contact: *}}
  */
-export function createRecipientInfo(mailAddress: string, name: ?string, contact: ?Contact, doNotResolveContact: boolean = false
-): RecipientInfo {
+export function createRecipientInfo(mailAddress: string, name: ?string, contact: ?Contact): RecipientInfo {
 	let type = isTutanotaMailAddress(mailAddress) ? RecipientInfoType.INTERNAL : RecipientInfoType.UNKNOWN
-	let recipientInfo: RecipientInfo = {
+	return {
 		type,
 		mailAddress,
 		name: name || "", // "" will be replaced as soon as a contact is found
 		contact: contact,
 		resolveContactPromise: null
 	}
-	if (!contact && !doNotResolveContact && logins.getUserController() && logins.getUserController().isInternalUser()) {
-		recipientInfo.resolveContactPromise = searchForContactByMailAddress(mailAddress).then(contact => {
+}
+
+export function resolveRecipientInfoContact(recipientInfo: RecipientInfo, contactModel: ContactModel, user: User) {
+	if (!recipientInfo.contact) {
+		recipientInfo.resolveContactPromise = contactModel.searchForContact(recipientInfo.mailAddress).then(contact => {
 			if (contact) {
-				if (!name) {
+				if (!recipientInfo.name) {
 					recipientInfo.name = getContactDisplayName(contact)
 				}
 				recipientInfo.contact = contact
 			} else {
-				recipientInfo.contact = createNewContact(mailAddress, recipientInfo.name)
+				recipientInfo.contact = createNewContact(user, recipientInfo.mailAddress, recipientInfo.name)
 			}
 			recipientInfo.resolveContactPromise = null
 			m.redraw()
 			return recipientInfo.contact
 		}).catch(e => {
 			console.log("error resolving contact", e)
-			recipientInfo.contact = createNewContact(mailAddress, recipientInfo.name)
+			recipientInfo.contact = createNewContact(user, recipientInfo.mailAddress, recipientInfo.name)
 			recipientInfo.resolveContactPromise = null
 			m.redraw()
 			return recipientInfo.contact
 		})
 	}
-	return recipientInfo
 }
 
 /**
@@ -86,7 +89,7 @@ export function createRecipientInfo(mailAddress: string, name: ?string, contact:
  * @param name The name of the contact. If an empty string is provided, the name is parsed from the mail address.
  * @return The contact.
  */
-export function createNewContact(mailAddress: string, name: string): Contact {
+export function createNewContact(user: User, mailAddress: string, name: string): Contact {
 	// prepare some contact information. it is only saved if the mail is sent securely
 	// use the name or mail address to extract first and last name. first part is used as first name, all other parts as last name
 	let firstAndLastName = name.trim()
@@ -113,15 +116,15 @@ export function createNewContact(mailAddress: string, name: string): Contact {
 /**
  * @throws TooManyRequestsError if the recipient could not be resolved because of too many requests.
  */
-export function resolveRecipientInfo(recipientInfo: RecipientInfo): Promise<RecipientInfo> {
+export function resolveRecipientInfo(mailModel: MailModel, recipientInfo: RecipientInfo): Promise<RecipientInfo> {
 	if (recipientInfo.type !== RecipientInfoType.UNKNOWN) {
 		return Promise.resolve(recipientInfo)
 	} else {
-		return locator.mailModel.getRecipientKeyData(recipientInfo.mailAddress)
-		              .then((keyData) => {
-			              recipientInfo.type = keyData == null ? RecipientInfoType.EXTERNAL : RecipientInfoType.INTERNAL
-			              return recipientInfo
-		              })
+		return mailModel.getRecipientKeyData(recipientInfo.mailAddress)
+		                .then((keyData) => {
+			                recipientInfo.type = keyData == null ? RecipientInfoType.EXTERNAL : RecipientInfoType.INTERNAL
+			                return recipientInfo
+		                })
 	}
 }
 
@@ -357,11 +360,13 @@ export function isUserMailbox(mailboxDetails: MailboxDetail) {
 }
 
 
-export function getDefaultSender(mailboxDetails: MailboxDetail): string {
+export function getDefaultSender(logins: LoginController, mailboxDetails: MailboxDetail): string {
 	if (isUserMailbox(mailboxDetails)) {
 		let props = logins.getUserController().props
 		return (props.defaultSender
-			&& contains(getEnabledMailAddresses(mailboxDetails), props.defaultSender)) ? props.defaultSender : neverNull(logins.getUserController().userGroupInfo.mailAddress)
+			&& contains(getEnabledMailAddressesWithUser(mailboxDetails, logins.getUserController().userGroupInfo), props.defaultSender))
+			? props.defaultSender
+			: neverNull(logins.getUserController().userGroupInfo.mailAddress)
 	} else {
 		return neverNull(mailboxDetails.mailGroupInfo.mailAddress)
 	}

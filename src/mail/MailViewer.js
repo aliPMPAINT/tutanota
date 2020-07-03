@@ -1042,7 +1042,8 @@ export class MailViewer {
 							label: "createContact_action",
 							click: () => {
 								LazyContactListId.getAsync().then(contactListId => {
-									new ContactEditor(createNewContact(address.address, address.name), contactListId).show()
+									const contact = createNewContact(logins.getUserController().user, address.address, address.name)
+									new ContactEditor(contact, contactListId).show()
 								})
 							},
 							type: ButtonType.Secondary
@@ -1308,7 +1309,7 @@ export class MailViewer {
 			if (foundAddress) {
 				return foundAddress.address.toLowerCase()
 			} else {
-				return getDefaultSender(mailboxDetails)
+				return getDefaultSender(logins, mailboxDetails)
 			}
 		})
 	}

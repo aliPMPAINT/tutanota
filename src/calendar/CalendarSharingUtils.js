@@ -15,10 +15,11 @@ import type {Group} from "../api/entities/sys/Group"
 import type {SentGroupInvitation} from "../api/entities/sys/SentGroupInvitation"
 import {locator} from "../api/main/MainLocator"
 import type {RecipientInfo} from "../api/common/RecipientInfo"
+import {logins} from "../api/main/LoginController"
 
 export function sendShareNotificationEmail(sharedGroupInfo: GroupInfo, recipients: Array<RecipientInfo>) {
 	locator.mailModel.getUserMailboxDetails().then((mailboxDetails) => {
-		const senderMailAddress = getDefaultSender(mailboxDetails)
+		const senderMailAddress = getDefaultSender(logins, mailboxDetails)
 		const replacements = {
 			// Sender is displayed like Name <mail.address@tutanota.com>. Less-than and greater-than must be encoded for HTML
 			"{inviter}": senderMailAddress,
@@ -61,7 +62,7 @@ function _sendNotificationEmail(recipients: Recipients, subject: TranslationKey,
 		const editor = new MailEditor(mailboxDetails)
 		const sender = getEnabledMailAddresses(mailboxDetails).includes(senderMailAddress)
 			? senderMailAddress
-			: getDefaultSender(mailboxDetails)
+			: getDefaultSender(logins, mailboxDetails)
 		const subjectString = lang.get(subject)
 		const bodyString = lang.get(body, replacements)
 		editor.initWithTemplate(recipients, subjectString, bodyString, true, sender)

@@ -19,7 +19,7 @@ import {AlarmInterval, CalendarAttendeeStatus, EndType, Keys, RepeatPeriod} from
 import {findAndRemove, numberRange, remove} from "../api/common/utils/ArrayUtils"
 import {calendarAttendeeStatusDescription, getCalendarName, getStartOfTheWeekOffsetForUser} from "./CalendarUtils"
 import {TimePicker} from "../gui/base/TimePicker"
-import {createRecipientInfo, getDisplayText} from "../mail/MailUtils"
+import {getDisplayText} from "../mail/MailUtils"
 import type {MailboxDetail} from "../mail/MailModel"
 import {Bubble, BubbleTextField} from "../gui/base/BubbleTextField"
 import {MailAddressBubbleHandler} from "../misc/MailAddressBubbleHandler"
@@ -155,7 +155,7 @@ export function showCalendarEventDialog(date: Date, calendars: Map<Id, CalendarI
 			})
 		}
 
-		const attendeesField = makeBubbleHandler((bubble) => {
+		const attendeesField = makeBubbleHandler(viewModel, (bubble) => {
 			viewModel.addAttendee(bubble.entity.mailAddress, bubble.entity.contact)
 			remove(attendeesField.bubbles, bubble)
 		})
@@ -561,7 +561,7 @@ function createEndTypeValues() {
 	]
 }
 
-function makeBubbleHandler(onBubbleCreated: (Bubble<RecipientInfo>) => void): BubbleTextField<RecipientInfo> {
+function makeBubbleHandler(viewModel: CalendarEventViewModel, onBubbleCreated: (Bubble<RecipientInfo>) => void): BubbleTextField<RecipientInfo> {
 	function createBubbleContextButtons(name: string, mailAddress: string): Array<ButtonAttrs | string> {
 		let buttonAttrs = [mailAddress]
 		buttonAttrs.push({
@@ -576,7 +576,7 @@ function makeBubbleHandler(onBubbleCreated: (Bubble<RecipientInfo>) => void): Bu
 
 	const bubbleHandler = new MailAddressBubbleHandler({
 		createBubble(name: ?string, mailAddress: string, contact: ?Contact): Bubble<RecipientInfo> {
-			const recipientInfo = createRecipientInfo(mailAddress, name, contact, false)
+			const recipientInfo = viewModel.createRecipientInfo(name, mailAddress, contact)
 			const buttonAttrs = attachDropdown({
 				label: () => getDisplayText(recipientInfo.name, mailAddress, false),
 				type: ButtonType.TextBubble,

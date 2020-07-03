@@ -33,6 +33,7 @@ import type {DialogHeaderBarAttrs} from "../gui/base/DialogHeaderBar"
 import {ButtonType} from "../gui/base/ButtonN"
 import type {File as TutanotaFile} from "../api/entities/tutanota/File"
 import type {ContactForm} from "../api/entities/tutanota/ContactForm"
+import {locator} from "../api/main/MainLocator"
 
 assertMainOrNode()
 
@@ -303,21 +304,22 @@ export class ContactFormRequestDialog {
 						                                     }
 
 						                                     let recipientInfo =
-							                                     createRecipientInfo(contactFormResult.requestMailAddress, "", null, true)
-						                                     return p.then(() => resolveRecipientInfo(recipientInfo)
-							                                     .then(r => {
-								                                     let recipientInfos = [r]
-								                                     return worker.createMailDraft(this._subject.value(),
-									                                     this._editor.getValue(), userEmailAddress, "",
-									                                     recipientInfos, [], [], ConversationType.NEW,
-									                                     null, this._attachments, true, [])
-								                                                  .then(draft => {
-									                                                  return worker.sendMailDraft(draft, recipientInfos, lang.code)
-								                                                  })
-							                                     })
-							                                     .finally(e => {
-								                                     return logins.logout(false)
-							                                     }))
+							                                     createRecipientInfo(contactFormResult.requestMailAddress, "", null)
+
+						                                     return p.then(() => resolveRecipientInfo(locator.mailModel, recipientInfo)
+								                                     .then(r => {
+									                                     let recipientInfos = [r]
+									                                     return worker.createMailDraft(this._subject.value(),
+										                                     this._editor.getValue(), userEmailAddress, "",
+										                                     recipientInfos, [], [], ConversationType.NEW,
+										                                     null, this._attachments, true, [])
+									                                                  .then(draft => {
+										                                                  return worker.sendMailDraft(draft, recipientInfos, lang.code)
+									                                                  })
+								                                     })
+								                                     .finally(e => {
+									                                     return logins.logout(false)
+								                                     }))
 					                                     })
 					                                     .then(() => {
 						                                     return {userEmailAddress}

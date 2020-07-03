@@ -48,7 +48,7 @@ import {incrementDate} from "../api/common/utils/DateUtils"
 import type {CalendarUpdateDistributor} from "./CalendarUpdateDistributor"
 import type {IUserController} from "../api/main/UserController"
 import type {TranslationKeyType} from "../misc/TranslationKey"
-import type {RecipientInfoTypeEnum} from "../api/common/RecipientInfo"
+import type {RecipientInfo, RecipientInfoTypeEnum} from "../api/common/RecipientInfo"
 import {RecipientInfoType} from "../api/common/RecipientInfo"
 import type {Contact} from "../api/entities/tutanota/Contact"
 import {SendMailModel} from "../mail/SendMailModel"
@@ -76,7 +76,8 @@ export type Guest = {|
 	password: ?string,
 |}
 
-type SendMailModelFactory = (MailboxDetail) => SendMailModel
+type SendMailPurpose = "invite" | "update" | "cancel" | "response"
+type SendMailModelFactory = (MailboxDetail, SendMailPurpose) => SendMailModel
 
 export class CalendarEventViewModel {
 	+summary: Stream<string>;
@@ -128,22 +129,24 @@ export class CalendarEventViewModel {
 	) {
 		this._distributor = distributor
 		this._calendarModel = calendarModel
-		this._inviteModel = sendMailModelFactory(mailboxDetail)
-		this._updateModel = sendMailModelFactory(mailboxDetail)
-		this._cancelModel = sendMailModelFactory(mailboxDetail)
+		this._inviteModel = sendMailModelFactory(mailboxDetail, "invite")
+		this._updateModel = sendMailModelFactory(mailboxDetail, "update")
+		this._cancelModel = sendMailModelFactory(mailboxDetail, "cancel")
 		this.summary = stream("")
 		this.calendars = Array.from(calendars.values())
 		this.selectedCalendar = stream(this.calendars[0])
 		// TODO: get it from the event or from user props
 		this.confidential = true;
 		this._guestStatuses = stream(new Map())
-		this._sendModelFactory = () => sendMailModelFactory(mailboxDetail)
+		this._sendModelFactory = () => sendMailModelFactory(mailboxDetail, "response")
 		this._mailAddresses = getEnabledMailAddressesWithUser(mailboxDetail, userController.userGroupInfo)
 
 		this.attendees = stream.merge([this._inviteModel.recipientsChanged, this._updateModel.recipientsChanged, this._guestStatuses])
 		                       .map(() => {
 			                       const guests = this._inviteModel._bccRecipients.concat(this._updateModel._bccRecipients)
 			                                          .map((recipientInfo) => {
+				                                          const password =
+					                                          recipientInfo.contact && recipientInfo.contact.presharedPassword || null
 				                                          return {
 					                                          address: createEncryptedMailAddress({
 						                                          name: recipientInfo.name,
@@ -152,7 +155,7 @@ export class CalendarEventViewModel {
 					                                          status: this._guestStatuses().get(recipientInfo.mailAddress)
 						                                          || CalendarAttendeeStatus.NEEDS_ACTION,
 					                                          type: recipientInfo.type,
-					                                          password: recipientInfo.contact && recipientInfo.contact.presharedPassword,
+					                                          password,
 				                                          }
 			                                          })
 			                       const ownAttendee = this._ownAttendee
@@ -323,7 +326,7 @@ export class CalendarEventViewModel {
 		const recipientInfo = this._inviteModel.addRecipient("bcc", {address: mailAddress, contact, name: null})
 		this._guestStatuses(newMapWith(this._guestStatuses(), recipientInfo.mailAddress, CalendarAttendeeStatus.NEEDS_ACTION))
 
-		if (this.attendees.length === 1 && this.findOwnAttendee() == null) {
+		if (this.attendees().length === 1 && this.findOwnAttendee() == null) {
 			this.selectGoing(CalendarAttendeeStatus.ACCEPTED)
 		}
 	}
@@ -669,7 +672,7 @@ export class CalendarEventViewModel {
 						.then(() => {
 							// We do not wait for update to finish, it's done in background
 							if (sendOutUpdate && existingAttendees.length) {
-								Promise.delay(200).then(() => this._distributor.sendUpdate(newEvent, this._updateModel))
+								this._distributor.sendUpdate(newEvent, this._updateModel)
 							}
 						})
 				}
@@ -719,6 +722,10 @@ export class CalendarEventViewModel {
 		if (inCancel) {
 			this._updateModel.setPassword(inCancel, password)
 		}
+	}
+
+	createRecipientInfo(name: ?string, address: string, contact: ?Contact): RecipientInfo {
+		return this._inviteModel.createRecipientInfo(name, address, contact)
 	}
 }
 

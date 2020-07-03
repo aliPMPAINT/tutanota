@@ -24,7 +24,7 @@ export class ContactModelImpl implements ContactModel {
 		this._worker = worker
 	}
 
-	searchForContact(mailAddress: string) {
+	searchForContact(mailAddress: string): Promise<?Contact> {
 		const cleanMailAddress = mailAddress.trim().toLowerCase()
 		return this._worker.search("\"" + cleanMailAddress + "\"", createRestriction("contact", null, null, "mailAddress", null), 0)
 		           .then(result => {

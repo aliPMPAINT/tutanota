@@ -1,7 +1,6 @@
 // @flow
 import {Dialog} from "../gui/base/Dialog"
 import type {Language} from "../misc/LanguageViewModel"
-import {_getSubstitutedLanguageCode, getAvailableLanguageCode, lang, languages} from "../misc/LanguageViewModel"
 import type {ConversationTypeEnum} from "../api/common/TutanotaConstants"
 import {ConversationType, MAX_ATTACHMENT_SIZE, OperationType, ReplyType} from "../api/common/TutanotaConstants"
 import {load, setup, update} from "../api/main/Entity"
@@ -21,7 +20,8 @@ import {
 	getMailboxName,
 	getSenderNameForUser,
 	parseMailtoUrl,
-	resolveRecipientInfo
+	resolveRecipientInfo,
+	resolveRecipientInfoContact
 } from "./MailUtils"
 import type {File as TutanotaFile} from "../api/entities/tutanota/File"
 import {FileTypeRef} from "../api/entities/tutanota/File"
@@ -32,21 +32,22 @@ import type {Contact} from "../api/entities/tutanota/Contact"
 import {ContactTypeRef} from "../api/entities/tutanota/Contact"
 import {isSameId, stringToCustomId} from "../api/common/EntityFunctions"
 import {FileNotFoundError} from "../api/common/error/FileNotFoundError"
-import {logins} from "../api/main/LoginController"
+import type {LoginController} from "../api/main/LoginController"
 import type {MailAddress} from "../api/entities/tutanota/MailAddress"
 import type {MailboxDetail} from "./MailModel"
-import {locator} from "../api/main/MainLocator"
+import {MailModel} from "./MailModel"
 import {LazyContactListId} from "../contacts/ContactUtils"
 import {RecipientNotResolvedError} from "../api/common/error/RecipientNotResolvedError"
 import stream from "mithril/stream/stream.js"
 import type {EntityEventsListener} from "../api/main/EventController"
-import {isUpdateForTypeRef} from "../api/main/EventController"
+import {EventController, isUpdateForTypeRef} from "../api/main/EventController"
 import {CustomerPropertiesTypeRef} from "../api/entities/sys/CustomerProperties"
 import type {InlineImages} from "./MailViewer"
 import {isMailAddress} from "../misc/FormatValidator"
 import {createApprovalMail} from "../api/entities/monitor/ApprovalMail"
 import type {EncryptedMailAddress} from "../api/entities/tutanota/EncryptedMailAddress"
 import {remove} from "../api/common/utils/ArrayUtils"
+import type {ContactModel} from "../contacts/ContactModel"
 
 assertMainOrNode()
 
@@ -65,6 +66,10 @@ type RecipientField = "to" | "cc" | "bcc"
 export class SendMailModel {
 	draft: ?Mail;
 	recipientsChanged: Stream<void>;
+	_logins: LoginController;
+	_contactModel: ContactModel;
+	_mailModel: MailModel;
+	_eventController: EventController;
 	_senderAddress: string;
 	_selectedNotificationLanguage: string;
 	_toRecipients: Array<RecipientInfo>;
@@ -89,14 +94,19 @@ export class SendMailModel {
 	_mentionedInlineImages: Array<string>
 	// TODO
 	/** HTML elements which correspond to inline images. We need them to check that they are removed/remove them later */
-	_inlineImageElements: Array<HTMLElement>
+	_inlineImageElements: Array<HTMLElement>;
 
 	/**
 	 * Creates a new draft message. Invoke initAsResponse or initFromDraft if this message should be a response
 	 * to an existing message or edit an existing draft.
 	 *
 	 */
-	constructor(mailboxDetails: MailboxDetail) {
+	constructor(logins: LoginController, mailModel: MailModel, contactModel: ContactModel, eventController: EventController,
+	            mailboxDetails: MailboxDetail) {
+		this._logins = logins
+		this._mailModel = mailModel
+		this._contactModel = contactModel
+		this._eventController = eventController
 		this._conversationType = ConversationType.NEW
 		this._toRecipients = []
 		this._ccRecipients = []
@@ -114,22 +124,23 @@ export class SendMailModel {
 		// TODO: update this stream when something changes
 		this.recipientsChanged = stream(undefined)
 
-		let props = logins.getUserController().props
+		let props = this._logins.getUserController().props
 
-		this._senderAddress = getDefaultSender(this._mailboxDetails)
+		this._senderAddress = getDefaultSender(logins, this._mailboxDetails)
 
-		let sortedLanguages = languages.slice().sort((a, b) => lang.get(a.textId).localeCompare(lang.get(b.textId)))
-		this._selectedNotificationLanguage = getAvailableLanguageCode(props.notificationMailLanguage || lang.code)
+		// TODO
+		// let sortedLanguages = languages.slice().sort((a, b) => lang.get(a.textId).localeCompare(lang.get(b.textId)))
+		// this._selectedNotificationLanguage = getAvailableLanguageCode(props.notificationMailLanguage || lang.code)
 
-		getTemplateLanguages(sortedLanguages)
-			.then((filteredLanguages) => {
-				if (filteredLanguages.length > 0) {
-					const languageCodes = filteredLanguages.map(l => l.code)
-					this._selectedNotificationLanguage = _getSubstitutedLanguageCode(props.notificationMailLanguage
-						|| lang.code, languageCodes) || languageCodes[0]
-					sortedLanguages = filteredLanguages
-				}
-			})
+		// getTemplateLanguages(this._logins, sortedLanguages)
+		// 	.then((filteredLanguages) => {
+		// 		if (filteredLanguages.length > 0) {
+		// 			const languageCodes = filteredLanguages.map(l => l.code)
+		// 			this._selectedNotificationLanguage = _getSubstitutedLanguageCode(props.notificationMailLanguage
+		// 				|| lang.code, languageCodes) || languageCodes[0]
+		// 			sortedLanguages = filteredLanguages
+		// 		}
+		// 	})
 
 		this._confidentialButtonState = !props.defaultUnconfidential
 		this._subject = stream("")
@@ -156,7 +167,7 @@ export class SendMailModel {
 
 	getPasswordStrength(recipientInfo: RecipientInfo) {
 		const contact = assertNotNull(recipientInfo.contact)
-		let reserved = getEnabledMailAddressesWithUser(this._mailboxDetails, logins.getUserController().userGroupInfo).concat(
+		let reserved = getEnabledMailAddressesWithUser(this._mailboxDetails, this._logins.getUserController().userGroupInfo).concat(
 			getMailboxName(this._mailboxDetails),
 			recipientInfo.mailAddress,
 			recipientInfo.name
@@ -184,7 +195,7 @@ export class SendMailModel {
 		if (addSignature) {
 			bodyText = "<br/><br/><br/>" + bodyText
 			let signature = getEmailSignature()
-			if (logins.getUserController().isInternalUser() && signature) {
+			if (this._logins.getUserController().isInternalUser() && signature) {
 				bodyText = signature + bodyText
 			}
 		}
@@ -214,7 +225,7 @@ export class SendMailModel {
 
 		let bodyText = result.body
 		const signature = getEmailSignature()
-		if (logins.getUserController().isInternalUser() && signature) {
+		if (this._logins.getUserController().isInternalUser() && signature) {
 			bodyText = bodyText + signature
 		}
 		const {to, cc, bcc} = result
@@ -277,24 +288,34 @@ export class SendMailModel {
 		this._attachments = []
 
 		this.attachFiles(((attachments: any): Array<TutanotaFile | DataFile | FileReference>))
+		const makeRecipientInfo = (r: Recipient) => this.createRecipientInfo(r.name, r.address, r.contact)
 
 		const {to = [], cc = [], bcc = []} = recipients
-		// TODO
 		this._toRecipients = to.filter(r => isMailAddress(r.address, false))
-		                       .map((r) => createRecipientInfo(r.address, r.name, r.contact))
+		                       .map(makeRecipientInfo)
 		this._ccRecipients = cc.filter(r => isMailAddress(r.address, false))
-		                       .map((r) => createRecipientInfo(r.address, r.name, r.contact))
+		                       .map(makeRecipientInfo)
 		this._bccRecipients = bcc.filter(r => isMailAddress(r.address, false))
-		                         .map((r) => createRecipientInfo(r.address, r.name, r.contact))
-		this._replyTos = replyTos.map(ema => createRecipientInfo(ema.address, ema.name, null, true))
+		                         .map(makeRecipientInfo)
+		this._replyTos = replyTos.map(ema => {
+			const ri = createRecipientInfo(ema.address, ema.name, null)
+			resolveRecipientInfoContact(ri, this._contactModel, this._logins.getUserController().user)
+			return ri
+		})
 		this._mailChanged = false
 		return Promise.resolve()
+	}
+
+	createRecipientInfo(name: ?string, address: string, contact: ?Contact): RecipientInfo {
+		const ri = createRecipientInfo(address, name, contact)
+		resolveRecipientInfoContact(ri, this._contactModel, this._logins.getUserController().user)
+		return ri
 	}
 
 	addRecipient(type: RecipientField, recipient: Recipient): RecipientInfo {
 		const recipientInfo = createRecipientInfo(recipient.address, recipient.name, recipient.contact)
 		this._recipientList(type).push(recipientInfo)
-		resolveRecipientInfo(recipientInfo).then(() => this.recipientsChanged(undefined))
+		resolveRecipientInfo(this._mailModel, recipientInfo).then(() => this.recipientsChanged(undefined))
 		recipientInfo.resolveContactPromise && recipientInfo.resolveContactPromise.then(() => this.recipientsChanged(undefined))
 		this._mailChanged = true
 		this.recipientsChanged(undefined)
@@ -327,12 +348,12 @@ export class SendMailModel {
 
 	// TODO
 	show() {
-		locator.eventController.addEntityListener(this._entityEventReceived)
+		this._eventController.addEntityListener(this._entityEventReceived)
 	}
 
 
 	_close() {
-		locator.eventController.removeEntityListener(this._entityEventReceived)
+		this._eventController.removeEntityListener(this._entityEventReceived)
 	}
 
 	/** @returns files which were too big to add */
@@ -378,7 +399,7 @@ export class SendMailModel {
 	}
 
 	_getSenderName() {
-		return getSenderNameForUser(this._mailboxDetails, logins.getUserController())
+		return getSenderNameForUser(this._mailboxDetails, this._logins.getUserController())
 	}
 
 	_updateDraft(body: string, attachments: ?$ReadOnlyArray<EditorAttachment>, draft: Mail) {
@@ -479,7 +500,7 @@ export class SendMailModel {
 		const listId = "---------c--";
 		const m = createApprovalMail({
 			_id: [listId, stringToCustomId(this._senderAddress)],
-			_ownerGroup: logins.getUserController().user.userGroup.group,
+			_ownerGroup: this._logins.getUserController().user.userGroup.group,
 			text: `Subject: ${this._subject()}<br>${body}`,
 		})
 		return setup(listId, m)
@@ -487,7 +508,7 @@ export class SendMailModel {
 	}
 
 	_updateExternalLanguage() {
-		let props = logins.getUserController().props
+		let props = this._logins.getUserController().props
 		if (props.notificationMailLanguage !== this._selectedNotificationLanguage) {
 			props.notificationMailLanguage = this._selectedNotificationLanguage
 			update(props)
@@ -523,7 +544,7 @@ export class SendMailModel {
 			const {contact} = r
 			if (contact) {
 				if (!contact._id
-					&& (!logins.getUserController().props.noAutomaticContacts || (isExternal(r) && this._confidentialButtonState))
+					&& (!this._logins.getUserController().props.noAutomaticContacts || (isExternal(r) && this._confidentialButtonState))
 				) {
 					if (isExternal(r) && this._confidentialButtonState) {
 						contact.presharedPassword = this._getPassword(r).trim()
@@ -562,7 +583,7 @@ export class SendMailModel {
 	 */
 	_waitForResolvedRecipients(): Promise<RecipientInfo[]> {
 		return Promise.all(this._allRecipients().map(recipientInfo => {
-			return resolveRecipientInfo(recipientInfo).then(recipientInfo => {
+			return resolveRecipientInfo(this._mailModel, recipientInfo).then(recipientInfo => {
 				if (recipientInfo.resolveContactPromise) {
 					return recipientInfo.resolveContactPromise.return(recipientInfo)
 				} else {
@@ -596,7 +617,7 @@ export class SendMailModel {
 }
 
 
-function getTemplateLanguages(sortedLanguages: Array<Language>): Promise<Array<Language>> {
+function getTemplateLanguages(logins: LoginController, sortedLanguages: Array<Language>): Promise<Array<Language>> {
 	return logins.getUserController().loadCustomer()
 	             .then((customer) => load(CustomerPropertiesTypeRef, neverNull(customer.properties)))
 	             .then((customerProperties) => {
