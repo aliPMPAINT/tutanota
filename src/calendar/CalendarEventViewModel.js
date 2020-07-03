@@ -644,7 +644,7 @@ export class CalendarEventViewModel {
 					const sendResponseModel = this._sendModelFactory()
 					const organizer = assertNotNull(existingEvent.organizer)
 					sendResponseModel.addRecipient("to", {name: organizer.name, address: organizer.address, contact: null})
-					this._distributor.sendResponse(newEvent, sendResponseModel, assertNotNull(going))
+					this._distributor.sendResponse(newEvent, sendResponseModel, assertNotNull(going)).then(() => sendResponseModel.dispose())
 				}
 			}
 		}
@@ -726,6 +726,12 @@ export class CalendarEventViewModel {
 
 	createRecipientInfo(name: ?string, address: string, contact: ?Contact): RecipientInfo {
 		return this._inviteModel.createRecipientInfo(name, address, contact)
+	}
+
+	dispose() {
+		this._inviteModel.dispose()
+		this._updateModel.dispose()
+		this._cancelModel.dispose()
 	}
 }
 

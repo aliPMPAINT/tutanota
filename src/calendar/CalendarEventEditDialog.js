@@ -133,21 +133,21 @@ export function showCalendarEventDialog(date: Date, calendars: Map<Id, CalendarI
 							}, {
 								label: "no_label",
 								click: () => {
-									askForUpdates(false).then(() => dialog.close())
+									askForUpdates(false).then(finish)
 									alertDialog.close()
 								},
 								type: ButtonType.Secondary
 							}, {
 								label: "yes_label",
 								click: () => {
-									askForUpdates(true).then(() => dialog.close())
+									askForUpdates(true).then(finish)
 									alertDialog.close()
 								},
 								type: ButtonType.Primary,
 							}
-						], (positive) => positive && askForUpdates(true).then(() => dialog.close()))
+						], (positive) => positive ? askForUpdates(true).then(finish) : finish())
 					} else {
-						dialog.close()
+						finish()
 					}
 				} else {
 					Dialog.error(result.error)
@@ -419,6 +419,11 @@ export function showCalendarEventDialog(date: Date, calendars: Map<Id, CalendarI
 			)
 		}
 
+		function finish() {
+			viewModel.dispose()
+			dialog.close()
+		}
+
 		function deleteEvent() {
 			if (viewModel.existingEvent == null) {
 				return Promise.resolve(true)
@@ -426,7 +431,7 @@ export function showCalendarEventDialog(date: Date, calendars: Map<Id, CalendarI
 			return Dialog.confirm("deleteEventConfirmation_msg").then((answer) => {
 				if (answer) {
 					viewModel.deleteEvent()
-					dialog.close()
+					finish()
 				}
 			})
 		}
@@ -469,14 +474,14 @@ export function showCalendarEventDialog(date: Date, calendars: Map<Id, CalendarI
 
 		const dialog = Dialog.largeDialog(
 			{
-				left: [{label: "cancel_action", click: () => dialog.close(), type: ButtonType.Secondary}],
+				left: [{label: "cancel_action", click: finish, type: ButtonType.Secondary}],
 				right: [{label: "save_action", click: () => okAction(dialog), type: ButtonType.Primary}],
 				middle: () => lang.get("createEvent_label"),
 			},
 			{view: () => m(".calendar-edit-container.pb", renderDialogContent())}
 		).addShortcut({
 			key: Keys.ESC,
-			exec: () => dialog.close(),
+			exec: finish,
 			help: "close_alt"
 		}).addShortcut({
 			key: Keys.S,

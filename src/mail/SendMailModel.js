@@ -1,6 +1,5 @@
 // @flow
 import {Dialog} from "../gui/base/Dialog"
-import type {Language} from "../misc/LanguageViewModel"
 import type {ConversationTypeEnum} from "../api/common/TutanotaConstants"
 import {ConversationType, MAX_ATTACHMENT_SIZE, OperationType, ReplyType} from "../api/common/TutanotaConstants"
 import {load, setup, update} from "../api/main/Entity"
@@ -41,7 +40,6 @@ import {RecipientNotResolvedError} from "../api/common/error/RecipientNotResolve
 import stream from "mithril/stream/stream.js"
 import type {EntityEventsListener} from "../api/main/EventController"
 import {EventController, isUpdateForTypeRef} from "../api/main/EventController"
-import {CustomerPropertiesTypeRef} from "../api/entities/sys/CustomerProperties"
 import type {InlineImages} from "./MailViewer"
 import {isMailAddress} from "../misc/FormatValidator"
 import {createApprovalMail} from "../api/entities/monitor/ApprovalMail"
@@ -63,6 +61,9 @@ function toRecipient({address, name}: MailAddress): Recipient {
 type EditorAttachment = TutanotaFile | DataFile | FileReference
 type RecipientField = "to" | "cc" | "bcc"
 
+/**
+ * Model which allows sending mails interactively - including resolving of recipients and handling of drafts.
+ */
 export class SendMailModel {
 	draft: ?Mail;
 	recipientsChanged: Stream<void>;
@@ -121,12 +122,13 @@ export class SendMailModel {
 		this._blockExternalContent = true
 		this._mentionedInlineImages = []
 		this._inlineImageElements = []
-		// TODO: update this stream when something changes
 		this.recipientsChanged = stream(undefined)
 
 		let props = this._logins.getUserController().props
 
 		this._senderAddress = getDefaultSender(logins, this._mailboxDetails)
+
+		this._eventController.addEntityListener(this._entityEventReceived)
 
 		// TODO
 		// let sortedLanguages = languages.slice().sort((a, b) => lang.get(a.textId).localeCompare(lang.get(b.textId)))
@@ -346,13 +348,8 @@ export class SendMailModel {
 		throw new Error()
 	}
 
-	// TODO
-	show() {
-		this._eventController.addEntityListener(this._entityEventReceived)
-	}
 
-
-	_close() {
+	dispose() {
 		this._eventController.removeEntityListener(this._entityEventReceived)
 	}
 
@@ -614,15 +611,4 @@ export class SendMailModel {
 			})
 		}
 	}
-}
-
-
-function getTemplateLanguages(logins: LoginController, sortedLanguages: Array<Language>): Promise<Array<Language>> {
-	return logins.getUserController().loadCustomer()
-	             .then((customer) => load(CustomerPropertiesTypeRef, neverNull(customer.properties)))
-	             .then((customerProperties) => {
-		             return sortedLanguages.filter(sL =>
-			             customerProperties.notificationMailTemplates.find((nmt) => nmt.language === sL.code))
-	             })
-	             .catch(() => [])
 }
