@@ -47,19 +47,18 @@ import type {User} from "../api/entities/sys/User"
 import {incrementDate} from "../api/common/utils/DateUtils"
 import type {CalendarUpdateDistributor} from "./CalendarUpdateDistributor"
 import type {IUserController} from "../api/main/UserController"
-import type {TranslationKeyType} from "../misc/TranslationKey"
 import type {RecipientInfo, RecipientInfoTypeEnum} from "../api/common/RecipientInfo"
 import {RecipientInfoType} from "../api/common/RecipientInfo"
 import type {Contact} from "../api/entities/tutanota/Contact"
 import {SendMailModel} from "../mail/SendMailModel"
 import {firstThrow} from "../api/common/utils/ArrayUtils"
 import {newMapWith} from "../api/common/utils/MapUtils"
+import type {RepeatRule} from "../api/entities/sys/RepeatRule"
+import {UserError} from "../api/common/error/UserError"
 
 const TIMESTAMP_ZERO_YEAR = 1970
 
-export type EventCreateResult =
-	| {status: "ok", askForUpdates: ?((bool) => Promise<void>)}
-	| {status: "error", error: TranslationKeyType}
+export type EventCreateResult = {|askForUpdates: ?((bool) => Promise<void>)|}
 
 const EventType = Object.freeze({
 	OWN: "own",
@@ -79,6 +78,13 @@ export type Guest = {|
 type SendMailPurpose = "invite" | "update" | "cancel" | "response"
 type SendMailModelFactory = (MailboxDetail, SendMailPurpose) => SendMailModel
 
+type RepeatData = {|
+	frequency: RepeatPeriodEnum,
+	interval: number,
+	endType: EndTypeEnum,
+	endValue: number
+|}
+
 export class CalendarEventViewModel {
 	+summary: Stream<string>;
 	+calendars: Array<CalendarInfo>;
@@ -88,7 +94,7 @@ export class CalendarEventViewModel {
 	startTime: string;
 	endTime: string;
 	+allDay: Stream<boolean>;
-	repeat: ?{frequency: RepeatPeriodEnum, interval: number, endType: EndTypeEnum, endValue: number}
+	repeat: ?RepeatData
 	+attendees: Stream<$ReadOnlyArray<Guest>>;
 	organizer: ?EncryptedMailAddress;
 	+possibleOrganizers: $ReadOnlyArray<EncryptedMailAddress>;
@@ -101,7 +107,6 @@ export class CalendarEventViewModel {
 	+_zone: string;
 	// We keep alarms read-only so that view can diff just array and not all elements
 	alarms: $ReadOnlyArray<AlarmInfo>;
-	confidential: boolean;
 	_user: User;
 	+_eventType: EventTypeEnum;
 	+_distributor: CalendarUpdateDistributor;
@@ -136,9 +141,7 @@ export class CalendarEventViewModel {
 		this.calendars = Array.from(calendars.values())
 		this.selectedCalendar = stream(this.calendars[0])
 		if ((existingEvent && (existingEvent.invitedConfidentially != null))) {
-			this.selectConfidential(existingEvent.invitedConfidentially)
-		} else {
-			this.confidential = this._inviteModel._confidentialButtonState
+			this.setConfidential(existingEvent.invitedConfidentially)
 		}
 		this._guestStatuses = stream(new Map())
 		this._sendModelFactory = () => sendMailModelFactory(mailboxDetail, "response")
@@ -383,7 +386,11 @@ export class CalendarEventViewModel {
 		} else {
 			// Provide default values if repeat is not there, override them with existing repeat if it's there, provide new frequency
 			// First empty object is for Flow.
-			this.repeat = Object.assign({}, {interval: 1, endType: EndType.Never, endValue: 1}, this.repeat, {frequency: repeatPeriod})
+			this.repeat = Object.assign(
+				{interval: 1, endType: EndType.Never, endValue: 1, frequency: repeatPeriod},
+				this.repeat,
+				{frequency: repeatPeriod}
+			)
 		}
 	}
 
@@ -535,164 +542,142 @@ export class CalendarEventViewModel {
 		return Promise.resolve()
 	}
 
+	/**
+	 * @reject UserError
+	 */
 	onOkPressed(): Promise<EventCreateResult> {
-		// We have to use existing instance to get all the final fields correctly
-		// Using clone feels hacky but otherwise we need to save all attributes of the existing event somewhere and if dialog is
-		// cancelled we also don't want to modify passed event
-		const newEvent = this.existingEvent ? clone(this.existingEvent) : createCalendarEvent()
+		return Promise.resolve().then(() => {
+			// We have to use existing instance to get all the final fields correctly
+			// Using clone feels hacky but otherwise we need to save all attributes of the existing event somewhere and if dialog is
+			// cancelled we also don't want to modify passed event
+			const newEvent = this.existingEvent ? clone(this.existingEvent) : createCalendarEvent()
 
-		let startDate = new Date(this.startDate)
-		let endDate = new Date(this.endDate)
+			let startDate = new Date(this.startDate)
+			let endDate = new Date(this.endDate)
 
-		if (this.allDay()) {
-			startDate = getAllDayDateUTCFromZone(startDate, this._zone)
-			endDate = getAllDayDateUTCFromZone(getStartOfNextDayWithZone(endDate, this._zone), this._zone)
-		} else {
-			const parsedStartTime = parseTime(this.startTime)
-			const parsedEndTime = parseTime(this.endTime)
-			if (!parsedStartTime || !parsedEndTime) {
-				return Promise.resolve({status: "error", error: "timeFormatInvalid_msg"})
-			}
-			startDate = DateTime.fromJSDate(startDate, {zone: this._zone})
-			                    .set({hour: parsedStartTime.hours, minute: parsedStartTime.minutes})
-			                    .toJSDate()
-
-			// End date is never actually included in the event. For the whole day event the next day
-			// is the boundary. For the timed one the end time is the boundary.
-			endDate = DateTime.fromJSDate(endDate, {zone: this._zone})
-			                  .set({hour: parsedEndTime.hours, minute: parsedEndTime.minutes})
-			                  .toJSDate()
-		}
-
-		if (endDate.getTime() <= startDate.getTime()) {
-			return Promise.resolve({status: "error", error: "startAfterEnd_label"})
-		}
-		newEvent.startTime = startDate
-		newEvent.description = this.note
-		newEvent.summary = this.summary()
-		newEvent.location = this.location()
-		newEvent.endTime = endDate
-		const groupRoot = this.selectedCalendar().groupRoot
-		newEvent.uid = this.existingEvent && this.existingEvent.uid ? this.existingEvent.uid : generateUid(newEvent, Date.now())
-		const repeat = this.repeat
-		if (repeat == null) {
-			newEvent.repeatRule = null
-		} else {
-			const interval = repeat.interval || 1
-			const repeatRule = createRepeatRuleWithValues(repeat.frequency, interval)
-			newEvent.repeatRule = repeatRule
-
-			const stopType = repeat.endType
-			repeatRule.endType = stopType
-			if (stopType === EndType.Count) {
-				const count = repeat.endValue
-				if (isNaN(count) || Number(count) < 1) {
-					repeatRule.endType = EndType.Never
-				} else {
-					repeatRule.endValue = String(count)
+			if (this.allDay()) {
+				startDate = getAllDayDateUTCFromZone(startDate, this._zone)
+				endDate = getAllDayDateUTCFromZone(getStartOfNextDayWithZone(endDate, this._zone), this._zone)
+			} else {
+				const parsedStartTime = parseTime(this.startTime)
+				const parsedEndTime = parseTime(this.endTime)
+				if (!parsedStartTime || !parsedEndTime) {
+					throw new UserError("timeFormatInvalid_msg")
 				}
-			} else if (stopType === EndType.UntilDate) {
-				const repeatEndDate = getStartOfNextDayWithZone(new Date(repeat.endValue), this._zone)
-				if (repeatEndDate.getTime() < getEventStart(newEvent, this._zone)) {
-					// Dialog.error("startAfterEnd_label")
-					return Promise.resolve({status: "error", error: "startAfterEnd_label"})
-				} else {
-					// We have to save repeatEndDate in the same way we save start/end times because if one is timzone
-					// dependent and one is not then we have interesting bugs in edge cases (event created in -11 could
-					// end on another date in +12). So for all day events end date is UTC-encoded all day event and for
-					// regular events it is just a timestamp.
-					repeatRule.endValue =
-						String((this.allDay() ? getAllDayDateUTCFromZone(repeatEndDate, this._zone) : repeatEndDate).getTime())
-				}
+				startDate = DateTime.fromJSDate(startDate, {zone: this._zone})
+				                    .set({hour: parsedStartTime.hours, minute: parsedStartTime.minutes})
+				                    .toJSDate()
+
+				// End date is never actually included in the event. For the whole day event the next day
+				// is the boundary. For the timed one the end time is the boundary.
+				endDate = DateTime.fromJSDate(endDate, {zone: this._zone})
+				                  .set({hour: parsedEndTime.hours, minute: parsedEndTime.minutes})
+				                  .toJSDate()
 			}
-		}
-		const newAlarms = this.alarms.slice()
-		newEvent.attendees = this.attendees().map((a) => createCalendarEventAttendee({
-			address: a.address,
-			status: a.status,
-		}))
-		if (this.existingEvent) {
-			newEvent.sequence = String(filterInt(this.existingEvent.sequence) + 1)
-		}
 
-		// We need to compute diff of attendees to know if we need to send out updates
-		let newAttendees: Array<Guest> = []
-		let existingAttendees: Array<Guest> = []
-		const {existingEvent} = this
+			if (endDate.getTime() <= startDate.getTime()) {
+				throw new UserError("startAfterEnd_label")
+			}
+			newEvent.startTime = startDate
+			newEvent.description = this.note
+			newEvent.summary = this.summary()
+			newEvent.location = this.location()
+			newEvent.endTime = endDate
+			newEvent.invitedConfidentially = this.isConfidential()
+			const groupRoot = this.selectedCalendar().groupRoot
+			newEvent.uid = this.existingEvent && this.existingEvent.uid ? this.existingEvent.uid : generateUid(newEvent, Date.now())
+			const repeat = this.repeat
+			if (repeat == null) {
+				newEvent.repeatRule = null
+			} else {
+				newEvent.repeatRule = this.createRepeatRule(newEvent, repeat)
+			}
+			const newAlarms = this.alarms.slice()
+			newEvent.attendees = this.attendees().map((a) => createCalendarEventAttendee({
+				address: a.address,
+				status: a.status,
+			}))
+			if (this.existingEvent) {
+				newEvent.sequence = String(filterInt(this.existingEvent.sequence) + 1)
+			}
 
-		newEvent.organizer = this.organizer
+			// We need to compute diff of attendees to know if we need to send out updates
+			let newAttendees: Array<Guest> = []
+			let existingAttendees: Array<Guest> = []
+			const {existingEvent} = this
 
-		if (this._viewingOwnEvent()) {
-			if (existingEvent) {
-				this.attendees().forEach((guest) => {
-					if (this._mailAddresses.includes(guest.address.address)) {
-						return
+			newEvent.organizer = this.organizer
+
+			if (this._viewingOwnEvent()) {
+				if (existingEvent) {
+					this.attendees().forEach((guest) => {
+						if (this._mailAddresses.includes(guest.address.address)) {
+							return
+						}
+						if (existingEvent.attendees.find(ea => ea.address.address === guest.address.address)) {
+							existingAttendees.push(guest)
+						} else {
+							newAttendees.push(guest)
+						}
+					})
+				} else {
+					newAttendees = this.attendees().filter(a => !this._mailAddresses.includes(a.address.address))
+				}
+			} else {
+				if (existingEvent) {
+					// We are not using this._findAttendee() because we want to search it on the event, before our modifications
+					const ownAttendee = existingEvent.attendees.find(a => this._mailAddresses.includes(a.address.address))
+					const going = ownAttendee && this._guestStatuses().get(ownAttendee.address.address)
+					if (ownAttendee && going !== CalendarAttendeeStatus.NEEDS_ACTION && ownAttendee.status !== going) {
+						ownAttendee.status = assertNotNull(going)
+						const sendResponseModel = this._sendModelFactory()
+						const organizer = assertNotNull(existingEvent.organizer)
+						sendResponseModel.addRecipient("to", {name: organizer.name, address: organizer.address, contact: null})
+						this._distributor.sendResponse(newEvent, sendResponseModel, assertNotNull(going)).then(() => sendResponseModel.dispose())
 					}
-					if (existingEvent.attendees.find(ea => ea.address.address === guest.address.address)) {
-						existingAttendees.push(guest)
-					} else {
-						newAttendees.push(guest)
+				}
+			}
+
+			const doCreateEvent = () => {
+				if (existingEvent == null || existingEvent._id == null) {
+					return this._calendarModel.createEvent(newEvent, newAlarms, this._zone, groupRoot)
+				} else {
+					return this._calendarModel.updateEvent(newEvent, newAlarms, this._zone, groupRoot, existingEvent)
+				}
+			}
+
+			if (this._viewingOwnEvent() && existingAttendees.length || this._cancelModel._bccRecipients.length) {
+				// ask for update
+				return {
+					askForUpdates: (sendOutUpdate) => {
+						return doCreateEvent()
+							.then(() => sendOutUpdate && newAttendees.length
+								? this._distributor.sendInvite(newEvent, this._inviteModel)
+								: Promise.resolve())
+							.then(() => sendOutUpdate && this._cancelModel._bccRecipients.length
+								? this._distributor.sendCancellation(newEvent, this._cancelModel)
+								: Promise.resolve())
+							.then(() => {
+								// We do not wait for update to finish, it's done in background
+								if (sendOutUpdate && existingAttendees.length) {
+									this._distributor.sendUpdate(newEvent, this._updateModel)
+								}
+							})
+					}
+				}
+			} else {
+				// just create the event
+				return doCreateEvent().then(() => {
+					if (newAttendees.length) {
+						return this._distributor.sendInvite(newEvent, this._inviteModel)
+					}
+				}).then(() => {
+					return {
+						askForUpdates: null
 					}
 				})
-			} else {
-				newAttendees = this.attendees().filter(a => !this._mailAddresses.includes(a.address.address))
 			}
-		} else {
-			if (existingEvent) {
-				// We are not using this._findAttendee() because we want to search it on the event, before our modifications
-				const ownAttendee = existingEvent.attendees.find(a => this._mailAddresses.includes(a.address.address))
-				const going = ownAttendee && this._guestStatuses().get(ownAttendee.address.address)
-				if (ownAttendee && going !== CalendarAttendeeStatus.NEEDS_ACTION && ownAttendee.status !== going) {
-					ownAttendee.status = assertNotNull(going)
-					const sendResponseModel = this._sendModelFactory()
-					const organizer = assertNotNull(existingEvent.organizer)
-					sendResponseModel.addRecipient("to", {name: organizer.name, address: organizer.address, contact: null})
-					this._distributor.sendResponse(newEvent, sendResponseModel, assertNotNull(going)).then(() => sendResponseModel.dispose())
-				}
-			}
-		}
-
-		const doCreateEvent = () => {
-			if (existingEvent == null || existingEvent._id == null) {
-				return this._calendarModel.createEvent(newEvent, newAlarms, this._zone, groupRoot)
-			} else {
-				return this._calendarModel.updateEvent(newEvent, newAlarms, this._zone, groupRoot, existingEvent)
-			}
-		}
-
-		if (this._viewingOwnEvent() && existingAttendees.length || this._cancelModel._bccRecipients.length) {
-			// ask for update
-			return Promise.resolve({
-				status: "ok",
-				askForUpdates: (sendOutUpdate) => {
-					return doCreateEvent()
-						.then(() => sendOutUpdate && newAttendees.length
-							? this._distributor.sendInvite(newEvent, this._inviteModel)
-							: Promise.resolve())
-						.then(() => sendOutUpdate && this._cancelModel._bccRecipients.length
-							? this._distributor.sendCancellation(newEvent, this._cancelModel)
-							: Promise.resolve())
-						.then(() => {
-							// We do not wait for update to finish, it's done in background
-							if (sendOutUpdate && existingAttendees.length) {
-								this._distributor.sendUpdate(newEvent, this._updateModel)
-							}
-						})
-				}
-			})
-		} else {
-			// just create the event
-			return doCreateEvent().then(() => {
-				if (newAttendees.length) {
-					return this._distributor.sendInvite(newEvent, this._inviteModel)
-				}
-			}).then(() => {
-				return {
-					status: "ok",
-					askForUpdates: null
-				}
-			})
-		}
+		})
 	}
 
 	selectGoing(going: CalendarAttendeeStatusEnum) {
@@ -708,9 +693,45 @@ export class CalendarEventViewModel {
 		}
 	}
 
-	selectConfidential(confidential: boolean) {
-		this.confidential = confidential
+
+	createRepeatRule(newEvent: CalendarEvent, repeat: RepeatData): RepeatRule {
+		const interval = repeat.interval || 1
+		const repeatRule = createRepeatRuleWithValues(repeat.frequency, interval)
+		const stopType = repeat.endType
+		repeatRule.endType = stopType
+		if (stopType === EndType.Count) {
+			const count = repeat.endValue
+			if (isNaN(count) || Number(count) < 1) {
+				repeatRule.endType = EndType.Never
+			} else {
+				repeatRule.endValue = String(count)
+			}
+		} else if (stopType === EndType.UntilDate) {
+			const repeatEndDate = getStartOfNextDayWithZone(new Date(repeat.endValue), this._zone)
+			if (repeatEndDate.getTime() < getEventStart(newEvent, this._zone)) {
+				throw new UserError("startAfterEnd_label")
+			} else {
+				// We have to save repeatEndDate in the same way we save start/end times because if one is timzone
+				// dependent and one is not then we have interesting bugs in edge cases (event created in -11 could
+				// end on another date in +12). So for all day events end date is UTC-encoded all day event and for
+				// regular events it is just a timestamp.
+				repeatRule.endValue =
+					String((this.allDay() ? getAllDayDateUTCFromZone(repeatEndDate, this._zone) : repeatEndDate).getTime())
+			}
+		}
+		return repeatRule
 	}
+
+	setConfidential(confidential: boolean): void {
+		this._inviteModel.setConfidential(confidential)
+		this._updateModel.setConfidential(confidential)
+		this._cancelModel.setConfidential(confidential)
+	}
+
+	isConfidential(): boolean {
+		return this._inviteModel.isConfidential() && this._updateModel.isConfidential() && this._cancelModel.isConfidential()
+	}
+
 
 	updatePassword(guest: Guest, password: string) {
 		const inInite = this._inviteModel._bccRecipients.find((r) => r.mailAddress === guest.address.address)

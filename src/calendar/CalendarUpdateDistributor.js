@@ -92,7 +92,7 @@ function sendCalendarFile({sendMailModel, method, subject, event, body}: {
 		throw new Error("Invite file is too big?")
 	}
 	sendMailModel.setSubject(subject)
-	return sendMailModel.send(body)
+	return sendMailModel.send(body, method)
 }
 
 function organizerLine(event: CalendarEvent) {

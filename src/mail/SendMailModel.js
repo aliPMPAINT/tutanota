@@ -1,6 +1,6 @@
 // @flow
 import {Dialog} from "../gui/base/Dialog"
-import type {ConversationTypeEnum} from "../api/common/TutanotaConstants"
+import type {CalendarMethodEnum, ConversationTypeEnum} from "../api/common/TutanotaConstants"
 import {ConversationType, MAX_ATTACHMENT_SIZE, OperationType, ReplyType} from "../api/common/TutanotaConstants"
 import {load, setup, update} from "../api/main/Entity"
 import {worker} from "../api/main/WorkerClient"
@@ -279,7 +279,7 @@ export class SendMailModel {
 	}
 
 	_setMailData(previousMail: ?Mail, confidential: ?boolean, conversationType: ConversationTypeEnum, previousMessageId: ?string,
-	             senderMailAddress: string, recipients: Recipients, attachments: TutanotaFile[], subject: string,
+	             senderMailAddress: string, recipients: Recipients, attachments: $ReadOnlyArray<TutanotaFile>, subject: string,
 	             body: string, replyTos: EncryptedMailAddress[]): Promise<void> {
 		this._previousMail = previousMail
 		this._conversationType = conversationType
@@ -291,7 +291,7 @@ export class SendMailModel {
 		this._subject(subject)
 		this._attachments = []
 
-		this.attachFiles(((attachments: any): Array<TutanotaFile | DataFile | FileReference>))
+		this.attachFiles(attachments)
 		const makeRecipientInfo = (r: Recipient) => this.createRecipientInfo(r.name, r.address, r.contact)
 
 		const {to = [], cc = [], bcc = []} = recipients
@@ -356,7 +356,7 @@ export class SendMailModel {
 	}
 
 	/** @returns files which were too big to add */
-	attachFiles(files: Array<EditorAttachment>): Array<EditorAttachment> {
+	attachFiles(files: $ReadOnlyArray<EditorAttachment>): Array<EditorAttachment> {
 		let totalSize = 0
 		this._attachments.forEach(file => {
 			totalSize += Number(file.size)
@@ -404,7 +404,7 @@ export class SendMailModel {
 	_updateDraft(body: string, attachments: ?$ReadOnlyArray<EditorAttachment>, draft: Mail) {
 		return worker
 			.updateMailDraft(this._subject(), body, this._senderAddress, this._getSenderName(), this._toRecipients,
-				this._ccRecipients, this._bccRecipients, attachments, this._isConfidential(), draft)
+				this._ccRecipients, this._bccRecipients, attachments, this.isConfidential(), draft)
 			.catch(LockedError, () => Dialog.error("operationStillActive_msg"))
 			.catch(NotFoundError, () => {
 				console.log("draft has been deleted, creating new one")
@@ -412,21 +412,26 @@ export class SendMailModel {
 			})
 	}
 
-	_createDraft(body: string, attachments: ?$ReadOnlyArray<EditorAttachment>) {
+	_createDraft(body: string, attachments: ?$ReadOnlyArray<EditorAttachment>): Promise<Mail> {
 		return worker.createMailDraft(this._subject(), body,
 			this._senderAddress, this._getSenderName(), this._toRecipients, this._ccRecipients, this._bccRecipients, this._conversationType,
-			this._previousMessageId, attachments, this._isConfidential(), this._replyTos)
+			this._previousMessageId, attachments, this.isConfidential(), this._replyTos)
 	}
 
-	_isConfidential() {
+	isConfidential(): boolean {
 		return this._confidentialButtonState || !this._containsExternalRecipients()
 	}
 
-	_containsExternalRecipients() {
+	setConfidential(confidentialButtonState: boolean): void {
+		this._confidentialButtonState = confidentialButtonState
+	}
+
+	_containsExternalRecipients(): boolean {
 		return (this._allRecipients().find(r => isExternal(r)) != null)
 	}
 
 	/**
+	 * @param calendarFileMethods map from file id to calendar method
 	 * @reject {RecipientNotResolvedError}
 	 * @reject {RecipientsNotFoundError}
 	 * @reject {TooManyRequestsError}
@@ -436,7 +441,7 @@ export class SendMailModel {
 	 * @reject {LockedError}
 	 * @reject {UserError}
 	 */
-	send(body: string): Promise<*> {
+	send(body: string, calendarMethod?: CalendarMethodEnum): Promise<*> {
 		return Promise
 			.resolve()
 			.then(() => {
@@ -474,18 +479,23 @@ export class SendMailModel {
 
 							return sendMailConfirm.then(ok => {
 								if (ok) {
+									const calendarFileMethods = calendarMethod
+										? this._attachments
+										      .filter((file) => {
+											      const tutanotaFile: TutanotaFile = downcast(file)
+											      return tutanotaFile.mimeType && tutanotaFile.mimeType.startsWith("text/calendar")
+										      })
+										      .map((file) => [downcast(file)._id, calendarMethod])
+										: []
 									return this._updateContacts(resolvedRecipients)
-										// TODO
-										       .then(() => ({calendarFileMethods: []}))
-										       .then(({calendarFileMethods}) => worker.sendMailDraft(
-											       neverNull(this.draft),
-											       resolvedRecipients,
-											       // TODO
-											       this._selectedNotificationLanguage,
-											       calendarFileMethods
-										       ))
-										       .then(() => this._updatePreviousMail())
-										       .then(() => this._updateExternalLanguage())
+									           .then(() => worker.sendMailDraft(
+										           neverNull(this.draft),
+										           resolvedRecipients,
+										           this._selectedNotificationLanguage,
+										           calendarFileMethods
+									           ))
+									           .then(() => this._updatePreviousMail())
+									           .then(() => this._updateExternalLanguage())
 								}
 							})
 						}

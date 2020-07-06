@@ -956,7 +956,7 @@ export class MailEditor {
 						: send
 				}
 			})
-			.catch(UserError, e => Dialog.error(e.message))
+			.catch(UserError, e => Dialog.error(e.msgKey))
 			.catch(e => {
 				console.log(typeof e, e)
 				throw e

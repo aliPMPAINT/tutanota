@@ -374,7 +374,7 @@ o.spec("CalendarEventViewModel", function () {
 			const newDescription = "new description"
 			viewModel.changeDescription(newDescription)
 
-			o(await viewModel.onOkPressed()).deepEquals({status: "ok", askForUpdates: null})
+			o(await viewModel.onOkPressed()).deepEquals({askForUpdates: null})
 
 			const [createdEvent] = calendarModel.createEvent.calls[0].args
 			o(createdEvent.summary).equals("Summary")
@@ -391,7 +391,7 @@ o.spec("CalendarEventViewModel", function () {
 			const newGuest = "new-attendee@example.com"
 			viewModel.addAttendee(newGuest)
 
-			o(await viewModel.onOkPressed()).deepEquals({status: "ok", askForUpdates: null})
+			o(await viewModel.onOkPressed()).deepEquals({askForUpdates: null})
 			o(calendarModel.createEvent.calls.length).equals(1)("created event")
 			o(distributor.sendInvite.calls[0].args[1]).deepEquals(inviteModel)
 			o(distributor.sendCancellation.calls).deepEquals([])
@@ -576,7 +576,7 @@ o.spec("CalendarEventViewModel", function () {
 			viewModel.selectGoing(CalendarAttendeeStatus.ACCEPTED)
 			const result = await viewModel.onOkPressed()
 
-			o(result).deepEquals({status: "ok", askForUpdates: null})
+			o(result).deepEquals({askForUpdates: null})
 			// As it is a "new" event, we must create it, not update
 			const [createdEvent] = calendarModel.createEvent.calls[0].args
 			o(createdEvent.attendees.length).equals(2)
@@ -602,7 +602,7 @@ o.spec("CalendarEventViewModel", function () {
 			const existingEvent = createCalendarEvent({_id: ["listId", "eventId"], startTime, endTime})
 			const viewModel = init({calendars, existingEvent, calendarModel})
 			const result = await viewModel.onOkPressed()
-			o(result).deepEquals({status: "ok", askForUpdates: null})
+			o(result).deepEquals({askForUpdates: null})
 			const [createdEvent] = calendarModel.updateEvent.calls[0].args
 			o(createdEvent.startTime.toISOString()).deepEquals(startTime.toISOString())
 			o(createdEvent.endTime.toISOString()).deepEquals(endTime.toISOString())
@@ -617,7 +617,7 @@ o.spec("CalendarEventViewModel", function () {
 			viewModel.addAttendee(newGuest)
 			viewModel.addAttendee(mailAddress.address)
 
-			o(await viewModel.onOkPressed()).deepEquals({status: "ok", askForUpdates: null})
+			o(await viewModel.onOkPressed()).deepEquals({askForUpdates: null})
 			o(calendarModel.createEvent.calls.length).equals(1)("created event")
 			o(distributor.sendInvite.calls[0].args[1]).equals(inviteModel)
 			o(inviteModel._bccRecipients.map(getAddress)).deepEquals([newGuest])
@@ -698,7 +698,7 @@ o.spec("CalendarEventViewModel", function () {
 			})
 			const viewModel = init({calendars, distributor, userController, existingEvent})
 			const result = await viewModel.onOkPressed()
-			o(result).deepEquals({status: "ok", askForUpdates: null})
+			o(result).deepEquals({askForUpdates: null})
 		})
 
 		o("does not ask for updates if alarm is changed in shared calendar", async function () {
@@ -721,7 +721,7 @@ o.spec("CalendarEventViewModel", function () {
 			viewModel.addAlarm(AlarmInterval.FIVE_MINUTES)
 			const result = await viewModel.onOkPressed()
 
-			o(result).deepEquals({status: "ok", askForUpdates: null})
+			o(result).deepEquals({askForUpdates: null})
 			o(calendarModel.updateEvent.calls.length).equals(1)("Did update event")
 		})
 	})
@@ -1099,9 +1099,6 @@ function makeCalendarModel(): CalendarModel {
 }
 
 function assertAskedForUpdates(result: EventCreateResult): ((bool) => Promise<void>) {
-	if (result.status !== "ok") {
-		throw new Error(`Result is not ok: ${JSON.stringify(result)}`)
-	}
 	if (result.askForUpdates == null) {
 		throw new Error("Did not ask for updates")
 	}

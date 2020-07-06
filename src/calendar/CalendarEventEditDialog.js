@@ -40,6 +40,7 @@ import {RecipientInfoType} from "../api/common/RecipientInfo"
 import {PasswordIndicator} from "../gui/base/PasswordIndicator"
 import {getPasswordStrength} from "../misc/PasswordUtils"
 import {animations, height} from "../gui/animation/Animations"
+import {UserError} from "../api/common/error/UserError"
 
 const iconForStatus = {
 	[CalendarAttendeeStatus.ACCEPTED]: Icons.CircleCheckmark,
@@ -121,38 +122,33 @@ export function showCalendarEventDialog(date: Date, calendars: Map<Id, CalendarI
 			} else {
 				viewModel.changeDescription(description)
 			}
-			viewModel.onOkPressed().then((result) => {
-				if (result.status === "ok") {
-					const {askForUpdates} = result
-					if (askForUpdates) {
-						const alertDialog = Dialog.alert("sendUpdates_msg", [
-							{
-								label: "cancel_action",
-								click: () => alertDialog.close(),
-								type: ButtonType.Secondary
-							}, {
-								label: "no_label",
-								click: () => {
-									askForUpdates(false).then(finish)
-									alertDialog.close()
-								},
-								type: ButtonType.Secondary
-							}, {
-								label: "yes_label",
-								click: () => {
-									askForUpdates(true).then(finish)
-									alertDialog.close()
-								},
-								type: ButtonType.Primary,
-							}
-						], (positive) => positive ? askForUpdates(true).then(finish) : finish())
-					} else {
-						finish()
-					}
+			viewModel.onOkPressed().then(({askForUpdates}) => {
+				if (askForUpdates) {
+					const alertDialog = Dialog.alert("sendUpdates_msg", [
+						{
+							label: "cancel_action",
+							click: () => alertDialog.close(),
+							type: ButtonType.Secondary
+						}, {
+							label: "no_label",
+							click: () => {
+								askForUpdates(false).then(finish)
+								alertDialog.close()
+							},
+							type: ButtonType.Secondary
+						}, {
+							label: "yes_label",
+							click: () => {
+								askForUpdates(true).then(finish)
+								alertDialog.close()
+							},
+							type: ButtonType.Primary,
+						}
+					], (positive) => positive ? askForUpdates(true).then(finish) : finish())
 				} else {
-					Dialog.error(result.error)
+					finish()
 				}
-			})
+			}).catch(UserError, (e) => Dialog.error(e.msgKey))
 		}
 
 		const attendeesField = makeBubbleHandler(viewModel, (bubble) => {
@@ -175,7 +171,7 @@ export function showCalendarEventDialog(date: Date, calendars: Map<Id, CalendarI
 				guests.splice(indexOfOwn, 1)
 				guests.unshift(ownAttendee)
 			}
-			const externalGuests = viewModel.confidential
+			const externalGuests = viewModel.isConfidential()
 				? guests.filter((a) => a.type === RecipientInfoType.EXTERNAL)
 				        .map((guest) => {
 					        return m(TextFieldN, {
@@ -401,9 +397,9 @@ export function showCalendarEventDialog(date: Date, calendars: Map<Id, CalendarI
 		const renderConfidentialButton = () => viewModel.attendees().find(a => a.type === RecipientInfoType.EXTERNAL)
 			? m(ButtonN, {
 					label: "confidential_action",
-					click: () => viewModel.selectConfidential(!viewModel.confidential),
-					icon: () => viewModel.confidential ? Icons.Lock : Icons.Unlock,
-					isSelected: () => viewModel.confidential,
+					click: () => viewModel.setConfidential(!viewModel.isConfidential()),
+					icon: () => viewModel.isConfidential() ? Icons.Lock : Icons.Unlock,
+					isSelected: () => viewModel.isConfidential(),
 					noBubble: true,
 				}
 			)
