@@ -1,11 +1,14 @@
 // @flow
-import {assertMainOrNodeBoot} from "../api/Env"
+import {assertMainOrNodeBoot, isTest} from "../api/Env"
 import {asyncImport} from "../api/common/utils/Utils"
 import {SecondFactorPendingError} from "../api/common/error/SecondFactorPendingError"
 
 assertMainOrNodeBoot()
 
 export function handleUncaughtError(e: Error) {
+	if (isTest()) {
+		throw e
+	}
 	if (e instanceof SecondFactorPendingError) {
 		// ignore
 	} else {

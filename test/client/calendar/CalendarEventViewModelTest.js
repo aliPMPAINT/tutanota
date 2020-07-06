@@ -31,6 +31,7 @@ import {SendMailModel} from "../../../src/mail/SendMailModel"
 import type {LoginController} from "../../../src/api/main/LoginController"
 import type {ContactModel} from "../../../src/contacts/ContactModel"
 import {EventController} from "../../../src/api/main/EventController"
+import {lang} from "../../../src/misc/LanguageViewModel"
 
 const calendarGroupId = "0"
 const now = new Date(2020, 4, 25, 13, 40)
@@ -66,7 +67,7 @@ o.spec("CalendarEventViewModel", function () {
 			}
 		)
 		const contactModel: ContactModel = downcast({
-			seaarchForContact: () => Promise.resolve(null),
+			searchForContact: () => Promise.resolve(null),
 		})
 		const mailModel: MailModel = downcast({
 				getRecipientKeyData: () => Promise.resolve(null),
@@ -101,6 +102,11 @@ o.spec("CalendarEventViewModel", function () {
 			existingEvent
 		)
 	}
+
+	o.before(function () {
+		// We need this because SendMailModel queries for default language. We should refactor to avoid this.
+		lang.init({})
+	})
 
 	o("init with existing event", function () {
 		const existingEvent = createCalendarEvent({
@@ -1030,7 +1036,10 @@ function makeCalendars(type: "own" | "shared"): Map<string, CalendarInfo> {
 
 function makeUserController(aliases: Array<string> = []): IUserController {
 	return downcast({
-		user: createUser({_id: userId}),
+		user: createUser({
+			_id: userId,
+			memberships: [createGroupMembership({groupType: GroupType.Mail}), createGroupMembership({groupType: GroupType.Contact})],
+		}),
 		props: {
 			defaultSender: mailAddress,
 		},

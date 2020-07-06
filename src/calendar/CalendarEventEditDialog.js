@@ -162,7 +162,7 @@ export function showCalendarEventDialog(date: Date, calendars: Map<Id, CalendarI
 
 		const attendeesExpanded = stream(viewModel.attendees().length > 0)
 
-		const renderInviting = (): Children => viewModel.canModifyGuests()
+		const renderInvitationField = (): Children => viewModel.canModifyGuests()
 			? m(".mt-negative-m", m(attendeesField))
 			: null
 
@@ -174,54 +174,6 @@ export function showCalendarEventDialog(date: Date, calendars: Map<Id, CalendarI
 				const indexOfOwn = guests.indexOf(ownAttendee)
 				guests.splice(indexOfOwn, 1)
 				guests.unshift(ownAttendee)
-			}
-			const renderGuest = (guest, index) => {
-				const {organizer} = viewModel
-				const isOrganizer = organizer && guest.address.address === organizer.address
-				return m(".flex", {
-					style: {
-						height: px(size.button_height),
-						borderBottom: "1px transparent",
-						marginTop: index === 0 && !viewModel.canModifyGuests() ? 0 : px(size.vpad),
-					},
-				}, [
-					m(".flex.col.flex-grow.overflow-hidden.flex-no-grow-shrink-auto", [
-						m(".flex.flex-grow.items-center",
-							m("div.text-ellipsis", {style: {lineHeight: px(24)}},
-								guest.address.name ? `${guest.address.name} ${guest.address.address}` : guest.address.address
-							),
-						),
-						m(".small", lang.get(isOrganizer ? "organizer_label" : "guest_label")
-							+ (guest === ownAttendee ? ` | ${lang.get("you_label")}` : "")),
-					]),
-					m(".flex-grow"),
-					[
-						isOrganizer && viewModel.canModifyOrganizer()
-							? m(".mr-s.flew-grow", m(ButtonN, {
-								label: "edit_action",
-								type: ButtonType.Secondary,
-								click: createDropdown(() => {
-									return viewModel.possibleOrganizers.map((organizer) => {
-											return {
-												label: () => organizer.address,
-												click: () => viewModel.setOrganizer(organizer),
-												type: ButtonType.Dropdown
-											}
-										}
-									)
-								}, 300)
-							}))
-							: null,
-						!isOrganizer && viewModel.canModifyGuests()
-							? m(".mr-s-flex-grow", m(ButtonN, {
-								label: "remove_action",
-								type: ButtonType.Secondary,
-								click: () => viewModel.removeAttendee(guest)
-							}))
-							: null,
-						renderStatusIcon(viewModel, guest, ownAttendee)
-					]
-				])
 			}
 			const externalGuests = viewModel.confidential
 				? guests.filter((a) => a.type === RecipientInfoType.EXTERNAL)
@@ -238,7 +190,7 @@ export function showCalendarEventDialog(date: Date, calendars: Map<Id, CalendarI
 					        })
 				        })
 				: []
-			return m("", [guests.map(renderGuest), externalGuests])
+			return m("", [guests.map((guest, index) => renderGuest(guest, index, viewModel, ownAttendee)), externalGuests])
 		}
 
 		const renderDateTimePickers = () => renderTwoColumnsIfFits(
@@ -385,7 +337,7 @@ export function showCalendarEventDialog(date: Date, calendars: Map<Id, CalendarI
 							class: "mb",
 						},
 						[
-							m(".flex-grow", renderInviting()),
+							m(".flex-grow", renderInvitationField()),
 							m(".flex-grow", renderAttendees())
 						],
 					),
@@ -610,4 +562,54 @@ function renderTwoColumnsIfFits(left: Children, right: Children): Children {
 			m(".flex.flex-half.pl-s", right),
 		])
 	}
+}
+
+
+function renderGuest(guest: Guest, index: number, viewModel: CalendarEventViewModel, ownAttendee: ?Guest): Children {
+	const {organizer} = viewModel
+	const isOrganizer = organizer && guest.address.address === organizer.address
+	return m(".flex", {
+		style: {
+			height: px(size.button_height),
+			borderBottom: "1px transparent",
+			marginTop: index === 0 && !viewModel.canModifyGuests() ? 0 : px(size.vpad),
+		},
+	}, [
+		m(".flex.col.flex-grow.overflow-hidden.flex-no-grow-shrink-auto", [
+			m(".flex.flex-grow.items-center",
+				m("div.text-ellipsis", {style: {lineHeight: px(24)}},
+					guest.address.name ? `${guest.address.name} ${guest.address.address}` : guest.address.address
+				),
+			),
+			m(".small", lang.get(isOrganizer ? "organizer_label" : "guest_label")
+				+ (guest === ownAttendee ? ` | ${lang.get("you_label")}` : "")),
+		]),
+		m(".flex-grow"),
+		[
+			isOrganizer && viewModel.canModifyOrganizer()
+				? m(".mr-s.flew-grow", m(ButtonN, {
+					label: "edit_action",
+					type: ButtonType.Secondary,
+					click: createDropdown(() => {
+						return viewModel.possibleOrganizers.map((organizer) => {
+								return {
+									label: () => organizer.address,
+									click: () => viewModel.setOrganizer(organizer),
+									type: ButtonType.Dropdown
+								}
+							}
+						)
+					}, 300)
+				}))
+				: null,
+			!isOrganizer && viewModel.canModifyGuests()
+				? m(".mr-s-flex-grow", m(ButtonN, {
+					label: "remove_action",
+					type: ButtonType.Secondary,
+					click: () => viewModel.removeAttendee(guest)
+				}))
+				: null,
+			renderStatusIcon(viewModel, guest, ownAttendee)
+		]
+	])
 }

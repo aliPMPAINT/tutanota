@@ -46,6 +46,7 @@ import {createApprovalMail} from "../api/entities/monitor/ApprovalMail"
 import type {EncryptedMailAddress} from "../api/entities/tutanota/EncryptedMailAddress"
 import {remove} from "../api/common/utils/ArrayUtils"
 import type {ContactModel} from "../contacts/ContactModel"
+import {getAvailableLanguageCode, lang} from "../misc/LanguageViewModel"
 
 assertMainOrNode()
 
@@ -128,11 +129,17 @@ export class SendMailModel {
 
 		this._senderAddress = getDefaultSender(logins, this._mailboxDetails)
 
+		this._entityEventReceived = (updates) => {
+			for (let update of updates) {
+				this._handleEntityEvent(update)
+			}
+		}
+
 		this._eventController.addEntityListener(this._entityEventReceived)
 
 		// TODO
 		// let sortedLanguages = languages.slice().sort((a, b) => lang.get(a.textId).localeCompare(lang.get(b.textId)))
-		// this._selectedNotificationLanguage = getAvailableLanguageCode(props.notificationMailLanguage || lang.code)
+		this._selectedNotificationLanguage = getAvailableLanguageCode(props.notificationMailLanguage || lang.code)
 
 		// getTemplateLanguages(this._logins, sortedLanguages)
 		// 	.then((filteredLanguages) => {
@@ -150,11 +157,6 @@ export class SendMailModel {
 		// TODO
 		this._subject.map(() => this._mailChanged = true)
 
-		this._entityEventReceived = (updates) => {
-			for (let update of updates) {
-				this._handleEntityEvent(update)
-			}
-		}
 		this._mailChanged = false
 	}
 
@@ -311,14 +313,14 @@ export class SendMailModel {
 	createRecipientInfo(name: ?string, address: string, contact: ?Contact): RecipientInfo {
 		const ri = createRecipientInfo(address, name, contact)
 		resolveRecipientInfoContact(ri, this._contactModel, this._logins.getUserController().user)
+			.then(() => this.recipientsChanged(undefined))
+		resolveRecipientInfo(this._mailModel, ri).then(() => this.recipientsChanged(undefined))
 		return ri
 	}
 
 	addRecipient(type: RecipientField, recipient: Recipient): RecipientInfo {
-		const recipientInfo = createRecipientInfo(recipient.address, recipient.name, recipient.contact)
+		const recipientInfo = this.createRecipientInfo(recipient.name, recipient.address, recipient.contact)
 		this._recipientList(type).push(recipientInfo)
-		resolveRecipientInfo(this._mailModel, recipientInfo).then(() => this.recipientsChanged(undefined))
-		recipientInfo.resolveContactPromise && recipientInfo.resolveContactPromise.then(() => this.recipientsChanged(undefined))
 		this._mailChanged = true
 		this.recipientsChanged(undefined)
 		return recipientInfo
@@ -484,7 +486,6 @@ export class SendMailModel {
 										       ))
 										       .then(() => this._updatePreviousMail())
 										       .then(() => this._updateExternalLanguage())
-										       .then(() => this._close())
 								}
 							})
 						}

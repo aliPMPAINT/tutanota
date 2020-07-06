@@ -103,6 +103,7 @@ import {MailAddressBubbleHandler} from "../misc/MailAddressBubbleHandler"
 import {createApprovalMail} from "../api/entities/monitor/ApprovalMail"
 import {newMouseEvent} from "../gui/HtmlUtils"
 import type {EncryptedMailAddress} from "../api/entities/tutanota/EncryptedMailAddress"
+import {isMailAddress} from "../misc/FormatValidator"
 
 assertMainOrNode()
 

@@ -15,7 +15,7 @@ import {
 	MailFolderType,
 	MailState
 } from "../api/common/TutanotaConstants"
-import {getEnabledMailAddressesForGroupInfo, getGroupInfoDisplayName, neverNull} from "../api/common/utils/Utils"
+import {assertNotNull, getEnabledMailAddressesForGroupInfo, getGroupInfoDisplayName, neverNull} from "../api/common/utils/Utils"
 import {assertMainOrNode, isApp, isDesktop} from "../api/Env"
 import {contains} from "../api/common/utils/ArrayUtils"
 import type {LoginController} from "../api/main/LoginController"
@@ -59,9 +59,9 @@ export function createRecipientInfo(mailAddress: string, name: ?string, contact:
 	}
 }
 
-export function resolveRecipientInfoContact(recipientInfo: RecipientInfo, contactModel: ContactModel, user: User) {
+export function resolveRecipientInfoContact(recipientInfo: RecipientInfo, contactModel: ContactModel, user: User): Promise<?Contact> {
 	if (!recipientInfo.contact) {
-		recipientInfo.resolveContactPromise = contactModel.searchForContact(recipientInfo.mailAddress).then(contact => {
+		const p = contactModel.searchForContact(recipientInfo.mailAddress).then(contact => {
 			if (contact) {
 				if (!recipientInfo.name) {
 					recipientInfo.name = getContactDisplayName(contact)
@@ -80,6 +80,10 @@ export function resolveRecipientInfoContact(recipientInfo: RecipientInfo, contac
 			m.redraw()
 			return recipientInfo.contact
 		})
+		recipientInfo.resolveContactPromise = p
+		return p
+	} else {
+		return Promise.resolve(recipientInfo.contact)
 	}
 }
 
@@ -92,15 +96,11 @@ export function resolveRecipientInfoContact(recipientInfo: RecipientInfo, contac
 export function createNewContact(user: User, mailAddress: string, name: string): Contact {
 	// prepare some contact information. it is only saved if the mail is sent securely
 	// use the name or mail address to extract first and last name. first part is used as first name, all other parts as last name
-	let firstAndLastName = name.trim()
-	!== "" ? fullNameToFirstAndLastName(name) : mailAddressToFirstAndLastName(mailAddress)
+	let firstAndLastName = name.trim() !== "" ? fullNameToFirstAndLastName(name) : mailAddressToFirstAndLastName(mailAddress)
 
 	let contact = createContact()
-	contact._owner = logins.getUserController().user._id
-	contact._ownerGroup = neverNull(logins.getUserController()
-	                                      .user
-	                                      .memberships
-	                                      .find(m => m.groupType === GroupType.Contact)).group
+	contact._owner = user._id
+	contact._ownerGroup = assertNotNull(user.memberships.find(m => m.groupType === GroupType.Contact)).group
 	contact.firstName = firstAndLastName.firstName
 	contact.lastName = firstAndLastName.lastName
 

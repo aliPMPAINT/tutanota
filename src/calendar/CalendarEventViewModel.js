@@ -135,8 +135,11 @@ export class CalendarEventViewModel {
 		this.summary = stream("")
 		this.calendars = Array.from(calendars.values())
 		this.selectedCalendar = stream(this.calendars[0])
-		// TODO: get it from the event or from user props
-		this.confidential = true;
+		if ((existingEvent && (existingEvent.invitedConfidentially != null))) {
+			this.selectConfidential(existingEvent.invitedConfidentially)
+		} else {
+			this.confidential = this._inviteModel._confidentialButtonState
+		}
 		this._guestStatuses = stream(new Map())
 		this._sendModelFactory = () => sendMailModelFactory(mailboxDetail, "response")
 		this._mailAddresses = getEnabledMailAddressesWithUser(mailboxDetail, userController.userGroupInfo)

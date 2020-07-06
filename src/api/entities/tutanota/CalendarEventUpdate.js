@@ -8,14 +8,14 @@ export const _TypeModel: TypeModel = {
 	"name": "CalendarEventUpdate",
 	"since": 42,
 	"type": "LIST_ELEMENT_TYPE",
-	"id": 1104,
-	"rootId": "CHR1dGFub3RhAARQ",
+	"id": 1105,
+	"rootId": "CHR1dGFub3RhAARR",
 	"versioned": false,
 	"encrypted": true,
 	"values": {
 		"_format": {
 			"name": "_format",
-			"id": 1108,
+			"id": 1109,
 			"since": 42,
 			"type": "Number",
 			"cardinality": "One",
@@ -24,7 +24,7 @@ export const _TypeModel: TypeModel = {
 		},
 		"_id": {
 			"name": "_id",
-			"id": 1106,
+			"id": 1107,
 			"since": 42,
 			"type": "GeneratedId",
 			"cardinality": "One",
@@ -33,7 +33,7 @@ export const _TypeModel: TypeModel = {
 		},
 		"_ownerEncSessionKey": {
 			"name": "_ownerEncSessionKey",
-			"id": 1110,
+			"id": 1111,
 			"since": 42,
 			"type": "Bytes",
 			"cardinality": "ZeroOrOne",
@@ -42,7 +42,7 @@ export const _TypeModel: TypeModel = {
 		},
 		"_ownerGroup": {
 			"name": "_ownerGroup",
-			"id": 1109,
+			"id": 1110,
 			"since": 42,
 			"type": "GeneratedId",
 			"cardinality": "ZeroOrOne",
@@ -51,7 +51,7 @@ export const _TypeModel: TypeModel = {
 		},
 		"_permissions": {
 			"name": "_permissions",
-			"id": 1107,
+			"id": 1108,
 			"since": 42,
 			"type": "GeneratedId",
 			"cardinality": "One",
@@ -60,7 +60,7 @@ export const _TypeModel: TypeModel = {
 		},
 		"sender": {
 			"name": "sender",
-			"id": 1111,
+			"id": 1112,
 			"since": 42,
 			"type": "String",
 			"cardinality": "One",
@@ -71,7 +71,7 @@ export const _TypeModel: TypeModel = {
 	"associations": {
 		"file": {
 			"name": "file",
-			"id": 1112,
+			"id": 1113,
 			"since": 42,
 			"type": "LIST_ELEMENT_ASSOCIATION",
 			"cardinality": "One",
