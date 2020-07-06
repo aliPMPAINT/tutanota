@@ -148,7 +148,7 @@ export function showCalendarEventDialog(date: Date, calendars: Map<Id, CalendarI
 				} else {
 					finish()
 				}
-			}).catch(UserError, (e) => Dialog.error(e.msgKey))
+			}).catch(UserError, (e) => Dialog.error(() => e.message))
 		}
 
 		const attendeesField = makeBubbleHandler(viewModel, (bubble) => {

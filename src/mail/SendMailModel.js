@@ -6,7 +6,14 @@ import {load, setup, update} from "../api/main/Entity"
 import {worker} from "../api/main/WorkerClient"
 import type {RecipientInfo} from "../api/common/RecipientInfo"
 import {isExternal} from "../api/common/RecipientInfo"
-import {LockedError, NotAuthorizedError, NotFoundError, PreconditionFailedError, TooManyRequestsError} from "../api/common/error/RestError"
+import {
+	AccessBlockedError,
+	LockedError,
+	NotAuthorizedError,
+	NotFoundError,
+	PreconditionFailedError,
+	TooManyRequestsError
+} from "../api/common/error/RestError"
 import {UserError} from "../api/common/error/UserError"
 import {assertMainOrNode} from "../api/Env"
 import {getPasswordStrength} from "../misc/PasswordUtils"
@@ -47,6 +54,8 @@ import type {EncryptedMailAddress} from "../api/entities/tutanota/EncryptedMailA
 import {remove} from "../api/common/utils/ArrayUtils"
 import type {ContactModel} from "../contacts/ContactModel"
 import {getAvailableLanguageCode, lang} from "../misc/LanguageViewModel"
+import {RecipientsNotFoundError} from "../api/common/error/RecipientsNotFoundError"
+import {checkApprovalStatus} from "../misc/ErrorHandlerImpl"
 
 assertMainOrNode()
 
@@ -496,11 +505,27 @@ export class SendMailModel {
 									           ))
 									           .then(() => this._updatePreviousMail())
 									           .then(() => this._updateExternalLanguage())
+									           .catch(LockedError, () => {throw new UserError("operationStillActive_msg")})
 								}
 							})
 						}
 					})
 
+					.catch(RecipientNotResolvedError, () => {throw new UserError("tooManyAttempts_msg")})
+					.catch(RecipientsNotFoundError, (e) => {
+						let invalidRecipients = e.message.join("\n")
+						throw new UserError(() => lang.get("invalidRecipients_msg") + "\n" + invalidRecipients)
+					})
+					.catch(TooManyRequestsError, () => {throw new UserError("tooManyMails_msg")})
+					.catch(AccessBlockedError, e => {
+						// special case: the approval status is set to SpamSender, but the update has not been received yet, so use SpamSender as default
+						return checkApprovalStatus(true, "4")
+							.then(() => {
+								console.log("could not send mail (blocked access)", e)
+							})
+					})
+					.catch(FileNotFoundError, () => {throw new UserError("couldNotAttachFile_msg")})
+					.catch(PreconditionFailedError, () => {throw new UserError("operationStillActive_msg")})
 			})
 	}
 

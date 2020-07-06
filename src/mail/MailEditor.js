@@ -903,8 +903,7 @@ export class MailEditor {
 							} else {
 								let externalRecipients = resolvedRecipients.filter(r => isExternal(r))
 								if (this._confidentialButtonState && externalRecipients.length > 0
-									&& externalRecipients.find(r => this.getPasswordField(r).value().trim()
-										!== "") == null) {
+									&& externalRecipients.find(r => this.getPasswordField(r).value().trim() !== "") == null) {
 									throw new UserError("noPreSharedPassword_msg")
 								}
 
@@ -937,8 +936,7 @@ export class MailEditor {
 						})
 						.catch(RecipientsNotFoundError, e => {
 							let invalidRecipients = e.message.join("\n")
-							return Dialog.error(() => lang.get("invalidRecipients_msg") + "\n"
-								+ invalidRecipients)
+							return Dialog.error(() => lang.get("invalidRecipients_msg") + "\n" + invalidRecipients)
 						})
 						.catch(TooManyRequestsError, e => Dialog.error(tooManyRequestsError))
 						.catch(AccessBlockedError, e => {
@@ -956,7 +954,7 @@ export class MailEditor {
 						: send
 				}
 			})
-			.catch(UserError, e => Dialog.error(e.msgKey))
+			.catch(UserError, e => Dialog.error(e.message))
 			.catch(e => {
 				console.log(typeof e, e)
 				throw e

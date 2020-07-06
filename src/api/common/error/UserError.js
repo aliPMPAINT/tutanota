@@ -2,14 +2,12 @@
 import {TutanotaError} from "./TutanotaError"
 import type {TranslationKeyType} from "../../../misc/TranslationKey"
 import {assertMainOrNode} from "../../Env"
+import {lang} from "../../../misc/LanguageViewModel"
 
 assertMainOrNode()
 
 export class UserError extends TutanotaError {
-	+msgKey: TranslationKeyType
-
-	constructor(msgKey: TranslationKeyType) {
-		super("UserError", msgKey)
-		this.msgKey = msgKey
+	constructor(message: TranslationKeyType | lazy<string>) {
+		super("UserError", lang.getMaybeLazy(message))
 	}
 }
